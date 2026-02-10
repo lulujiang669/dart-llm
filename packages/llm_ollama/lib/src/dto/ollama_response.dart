@@ -64,18 +64,35 @@ class OllamaChunkMessage extends LLMChunkMessage {
     // Parse tool calls
     List<LLMToolCall>? toolCalls;
     if (json['tool_calls'] != null) {
-      toolCalls = (json['tool_calls'] as List<dynamic>).map((toolCallJson) {
-        final argumentsValue = toolCallJson['function']['arguments'];
+      final toolCallsJson = json['tool_calls'] as List<dynamic>;
+      toolCalls = <LLMToolCall>[];
+
+      for (var i = 0; i < toolCallsJson.length; i++) {
+        final rawToolCall = toolCallsJson[i] as Map<String, dynamic>;
+        final functionJson = rawToolCall['function'] as Map<String, dynamic>;
+
+        final argumentsValue = functionJson['arguments'];
         // If arguments is already a string, use it directly; otherwise encode it
         final arguments = argumentsValue is String
             ? argumentsValue
             : jsonEncode(argumentsValue);
-        return LLMToolCall(
-          id: null, // Ollama doesn't provide IDs
-          name: toolCallJson['function']['name'],
-          arguments: arguments,
+
+        // Prefer an explicit id from the backend when available; otherwise
+        // synthesize a deterministic, non-empty id so that llm_core can
+        // safely use it as toolCallId for tool messages.
+        final rawId = rawToolCall['id'];
+        final id = (rawId is String && rawId.isNotEmpty)
+            ? rawId
+            : 'tool_${i}_${functionJson['name']}';
+
+        toolCalls.add(
+          LLMToolCall(
+            id: id,
+            name: functionJson['name'],
+            arguments: arguments,
+          ),
         );
-      }).toList();
+      }
     }
 
     // Handle thinking content embedded in content field (when tools are used)

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-02-10
+
+### Fixed
+- Hardened `StreamToolExecutor` to always synthesize a non-empty `toolCallId` for `LLMRole.tool` messages when a backend-provided `LLMToolCall.id` is missing or empty, preventing `Tool message must have toolCallId` validation errors.
+- Improved tool execution error handling so that thrown tool exceptions are surfaced as tool messages rather than crashing the stream.
+
 ## [0.1.5] - 2026-01-26
 
 ### Added

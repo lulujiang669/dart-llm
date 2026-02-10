@@ -346,6 +346,71 @@ void main() {
         tags: ['integration'],
         timeout: const Timeout(Duration(minutes: 1)),
       );
+
+      test(
+        'tool calling does not fail with missing toolCallId',
+        () async {
+          final messages = [
+            LLMMessage(
+              role: LLMRole.user,
+              content: 'Use the calculator tool to compute 2 + 2.',
+            ),
+          ];
+
+          Object? caughtError;
+          List<LLMChunk> chunks = const [];
+
+          try {
+            chunks = await collectStreamWithTimeout(
+              repo.streamChat(
+                chatModel,
+                messages: messages,
+                tools: [CalculatorTool()],
+              ),
+              const Duration(minutes: 3),
+            );
+          } catch (e) {
+            caughtError = e;
+          }
+
+          // The stream should complete without raising the historical
+          // validation error:
+          //   LLMApiException: HTTP 400 - Message 2: Tool message must have toolCallId
+          if (caughtError is LLMApiException &&
+              caughtError.message.contains('Tool message must have toolCallId')) {
+            fail(
+              'Tool calling failed due to missing toolCallId validation error: '
+              '${caughtError.message}',
+            );
+          }
+
+          // Verify that any tool calls emitted by Ollama are mapped to
+          // LLMToolCall objects with non-null, non-empty ids. This ensures the
+          // dto layer provides stable ids for llm_core to reuse as toolCallId.
+          final hasAnyToolCalls = chunks.any(
+            (chunk) => (chunk.message?.toolCalls ?? const []).isNotEmpty,
+          );
+          if (hasAnyToolCalls) {
+            final hasMissingId = chunks.any(
+              (chunk) => chunk.message?.toolCalls?.any(
+                        (toolCall) =>
+                            toolCall.id == null || toolCall.id!.isEmpty,
+                      ) ??
+                  false,
+            );
+            expect(
+              hasMissingId,
+              isFalse,
+              reason:
+                  'All Ollama tool_calls should produce LLMToolCall with non-empty id',
+            );
+          }
+          expect(hasAnyToolCalls, isTrue);
+          expect(chunks, isNotEmpty);
+        },
+        tags: ['integration'],
+        timeout: const Timeout(Duration(minutes: 5)),
+      );
     });
   });
 }

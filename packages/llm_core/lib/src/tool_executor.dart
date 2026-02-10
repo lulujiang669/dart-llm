@@ -79,18 +79,33 @@ class StreamToolExecutor {
       // When the stream is done and we have tool calls, execute them
       if ((chunk.done ?? false) && collectedToolCalls.isNotEmpty) {
         // Execute all collected tools
+        var toolCallIndex = 0;
         for (final toolCall in collectedToolCalls) {
           final tool = tools.firstWhere(
             (t) => t.name == toolCall.name,
             orElse: () => throw Exception('Tool ${toolCall.name} not found'),
           );
 
-          final toolResponse =
-              await tool.execute(
-                json.decode(toolCall.arguments),
-                extra: extra,
-              ) ??
-              'Tool ${toolCall.name} returned null';
+          dynamic toolResponse;
+          try {
+            toolResponse = await tool.execute(
+                  json.decode(toolCall.arguments),
+                  extra: extra,
+                ) ??
+                'Tool ${toolCall.name} returned null';
+          } catch (e) {
+            // If a tool throws, capture the error as a tool message instead of
+            // crashing the whole stream. This allows callers to handle tool
+            // failures gracefully.
+            toolResponse = 'Tool ${toolCall.name} failed: $e';
+          }
+
+          // Ensure we always have a non-empty toolCallId, even if the backend
+          // did not provide an id for the tool call.
+          final effectiveToolCallId =
+              (toolCall.id != null && toolCall.id!.isNotEmpty)
+                  ? toolCall.id!
+                  : 'tool_${toolCallIndex}_${toolCall.name}';
 
           workingMessages.add(
             LLMMessage(
@@ -98,9 +113,11 @@ class StreamToolExecutor {
                   ? toolResponse
                   : toolResponse.toString(),
               role: LLMRole.tool,
-              toolCallId: toolCall.id,
+              toolCallId: effectiveToolCallId,
             ),
           );
+
+          toolCallIndex++;
         }
 
         // Continue the conversation with tool results if we have attempts left

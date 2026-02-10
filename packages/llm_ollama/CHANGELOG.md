@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-02-10
+
+### Fixed
+- Ensured Ollama tool calls always produce `LLMToolCall` instances with non-null, non-empty `id` values, synthesizing IDs when Ollama does not provide them.
+- Aligned tool-calling behavior with `llm_core`'s `toolCallId` validation so that tool execution no longer fails with `Tool message must have toolCallId` when used together with `llm_core`.
+
 ## [0.1.5] - 2026-01-26
 
 ### Added

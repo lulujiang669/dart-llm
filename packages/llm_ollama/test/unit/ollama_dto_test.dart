@@ -79,6 +79,36 @@ void main() {
       expect(chunk.message?.toolCalls?.length, 1);
       expect(chunk.message?.toolCalls?.first.name, 'calculator');
       expect(chunk.message?.toolCalls?.first.arguments, '{"a": 2, "b": 2}');
+      expect(chunk.message?.toolCalls?.first.id, isNotNull);
+      expect(chunk.message?.toolCalls?.first.id, isNotEmpty);
+    });
+
+    test('chunk with tool calls preserves backend id when present', () {
+      final json = {
+        'model': 'qwen3:0.6b',
+        'created_at': '2024-01-01T00:00:00.000Z',
+        'message': {
+          'role': 'assistant',
+          'tool_calls': [
+            {
+              'id': 'call-123',
+              'function': {
+                'name': 'calculator',
+                'arguments': '{"a": 3, "b": 3}',
+              },
+            },
+          ],
+        },
+        'done': true,
+      };
+
+      final chunk = OllamaChunk.fromJson(json);
+
+      expect(chunk.message?.toolCalls, isNotNull);
+      expect(chunk.message?.toolCalls?.length, 1);
+      expect(chunk.message?.toolCalls?.first.id, 'call-123');
+      expect(chunk.message?.toolCalls?.first.name, 'calculator');
+      expect(chunk.message?.toolCalls?.first.arguments, '{"a": 3, "b": 3}');
     });
 
     test('chunk with thinking embedded in content', () {

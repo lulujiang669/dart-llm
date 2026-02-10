@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-02-10
+
+### Fixed
+- Ensured conversion from ChatGPT `tool_calls` to `LLMToolCall` always yields non-null, non-empty `id` values, synthesizing IDs should the OpenAI response omits them.
+- Improved interoperability with `llm_core`'s strict `toolCallId` validation for tool messages in tool-calling workflows.
+
 ## [0.1.5] - 2026-01-26
 
 ### Added

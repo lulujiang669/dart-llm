@@ -10,12 +10,23 @@ extension GPTToolCallToLLMToolCallExt on List<GPTToolCall> {
       onlyFirst = [first];
     }
     return onlyFirst
+        .asMap()
+        .entries
         .map(
-          (call) => LLMToolCall(
-            id: call.id,
-            name: call.function.name!,
-            arguments: call.function.arguments,
-          ),
+          (entry) {
+            final index = entry.key;
+            final call = entry.value;
+            final rawId = call.id;
+            final id = (rawId != null && rawId.isNotEmpty)
+                ? rawId
+                : 'tool_${index}_${call.function.name}';
+
+            return LLMToolCall(
+              id: id,
+              name: call.function.name!,
+              arguments: call.function.arguments,
+            );
+          },
         )
         .toList(growable: false);
   }
