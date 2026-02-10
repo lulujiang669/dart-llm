@@ -480,27 +480,30 @@ void main() {
       expect(llmToolCalls[0].arguments, '{"a": 2, "b": 2}');
     });
 
-    test('GPTToolCallToLLMToolCallExt.toLLMToolCalls synthesizes id when null', () {
-      final gptToolCalls = [
-        GPTToolCall(
-          id: null,
-          index: 0,
-          type: 'function',
-          function: GPTToolFunctionCall(
-            name: 'calculator',
-            arguments: '{"a": 2, "b": 2}',
+    test(
+      'GPTToolCallToLLMToolCallExt.toLLMToolCalls synthesizes id when null',
+      () {
+        final gptToolCalls = [
+          GPTToolCall(
+            id: null,
+            index: 0,
+            type: 'function',
+            function: GPTToolFunctionCall(
+              name: 'calculator',
+              arguments: '{"a": 2, "b": 2}',
+            ),
           ),
-        ),
-      ];
+        ];
 
-      final llmToolCalls = gptToolCalls.toLLMToolCalls;
+        final llmToolCalls = gptToolCalls.toLLMToolCalls;
 
-      expect(llmToolCalls.length, 1);
-      expect(llmToolCalls[0].id, isNotNull);
-      expect(llmToolCalls[0].id, isNotEmpty);
-      expect(llmToolCalls[0].name, 'calculator');
-      expect(llmToolCalls[0].arguments, '{"a": 2, "b": 2}');
-    });
+        expect(llmToolCalls.length, 1);
+        expect(llmToolCalls[0].id, isNotNull);
+        expect(llmToolCalls[0].id, isNotEmpty);
+        expect(llmToolCalls[0].name, 'calculator');
+        expect(llmToolCalls[0].arguments, '{"a": 2, "b": 2}');
+      },
+    );
 
     test('GPTMessageToLLMMessageExt.toLLMMessage', () {
       final gptMessage = GPTMessage(

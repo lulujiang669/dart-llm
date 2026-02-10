@@ -88,7 +88,8 @@ class StreamToolExecutor {
 
           dynamic toolResponse;
           try {
-            toolResponse = await tool.execute(
+            toolResponse =
+                await tool.execute(
                   json.decode(toolCall.arguments),
                   extra: extra,
                 ) ??
@@ -104,8 +105,8 @@ class StreamToolExecutor {
           // did not provide an id for the tool call.
           final effectiveToolCallId =
               (toolCall.id != null && toolCall.id!.isNotEmpty)
-                  ? toolCall.id!
-                  : 'tool_${toolCallIndex}_${toolCall.name}';
+              ? toolCall.id!
+              : 'tool_${toolCallIndex}_${toolCall.name}';
 
           workingMessages.add(
             LLMMessage(

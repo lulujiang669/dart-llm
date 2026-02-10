@@ -12,22 +12,20 @@ extension GPTToolCallToLLMToolCallExt on List<GPTToolCall> {
     return onlyFirst
         .asMap()
         .entries
-        .map(
-          (entry) {
-            final index = entry.key;
-            final call = entry.value;
-            final rawId = call.id;
-            final id = (rawId != null && rawId.isNotEmpty)
-                ? rawId
-                : 'tool_${index}_${call.function.name}';
+        .map((entry) {
+          final index = entry.key;
+          final call = entry.value;
+          final rawId = call.id;
+          final id = (rawId != null && rawId.isNotEmpty)
+              ? rawId
+              : 'tool_${index}_${call.function.name}';
 
-            return LLMToolCall(
-              id: id,
-              name: call.function.name!,
-              arguments: call.function.arguments,
-            );
-          },
-        )
+          return LLMToolCall(
+            id: id,
+            name: call.function.name!,
+            arguments: call.function.arguments,
+          );
+        })
         .toList(growable: false);
   }
 }

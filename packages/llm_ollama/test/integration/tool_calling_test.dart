@@ -377,7 +377,9 @@ void main() {
           // validation error:
           //   LLMApiException: HTTP 400 - Message 2: Tool message must have toolCallId
           if (caughtError is LLMApiException &&
-              caughtError.message.contains('Tool message must have toolCallId')) {
+              caughtError.message.contains(
+                'Tool message must have toolCallId',
+              )) {
             fail(
               'Tool calling failed due to missing toolCallId validation error: '
               '${caughtError.message}',
@@ -392,10 +394,10 @@ void main() {
           );
           if (hasAnyToolCalls) {
             final hasMissingId = chunks.any(
-              (chunk) => chunk.message?.toolCalls?.any(
-                        (toolCall) =>
-                            toolCall.id == null || toolCall.id!.isEmpty,
-                      ) ??
+              (chunk) =>
+                  chunk.message?.toolCalls?.any(
+                    (toolCall) => toolCall.id == null || toolCall.id!.isEmpty,
+                  ) ??
                   false,
             );
             expect(

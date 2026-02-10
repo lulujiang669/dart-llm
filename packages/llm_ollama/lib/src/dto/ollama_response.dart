@@ -86,11 +86,7 @@ class OllamaChunkMessage extends LLMChunkMessage {
             : 'tool_${i}_${functionJson['name']}';
 
         toolCalls.add(
-          LLMToolCall(
-            id: id,
-            name: functionJson['name'],
-            arguments: arguments,
-          ),
+          LLMToolCall(id: id, name: functionJson['name'], arguments: arguments),
         );
       }
     }

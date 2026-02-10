@@ -15,10 +15,7 @@ void main() {
       expect(calls.first.id, isNotNull);
       expect(calls.first.id, isNotEmpty);
       expect(calls.first.name, 'calculator');
-      expect(
-        calls.first.arguments,
-        anyOf('{"a":2,"b":2}', '{"a": 2, "b": 2}'),
-      );
+      expect(calls.first.arguments, anyOf('{"a":2,"b":2}', '{"a": 2, "b": 2}'));
     });
 
     test('parseToolCalls assigns non-empty ids for function-style format', () {
@@ -33,4 +30,3 @@ void main() {
     });
   });
 }
-
