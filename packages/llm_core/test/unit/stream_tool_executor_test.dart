@@ -1,5 +1,6 @@
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:llm_core/llm_core.dart';
@@ -37,7 +38,7 @@ void main() {
 
         // This mirrors the logic inside StreamToolExecutor for deriving the
         // effective toolCallId when the backend omits an id.
-        final toolCallIndex = 0;
+        const toolCallIndex = 0;
         final effectiveToolCallId =
             (toolCall.id != null && toolCall.id!.isNotEmpty)
             ? toolCall.id!
@@ -60,6 +61,104 @@ void main() {
 
         // Ensure the synthesized message passes validation.
         expect(() => Validation.validateMessage(message), returnsNormally);
+      },
+    );
+
+    test(
+      'synthesizes distinct toolCallIds for each index when multiple calls have null id',
+      () {
+        const toolName = 'echo_tool';
+        const indices = [0, 1, 2];
+
+        for (var i = 0; i < indices.length; i++) {
+          final toolCallIndex = indices[i];
+          final toolCall = LLMToolCall(
+            name: toolName,
+            arguments: '{}',
+            id: null,
+          );
+          final effectiveToolCallId =
+              (toolCall.id != null && toolCall.id!.isNotEmpty)
+              ? toolCall.id!
+              : 'tool_${toolCallIndex}_${toolCall.name}';
+
+          expect(
+            effectiveToolCallId,
+            equals('tool_${toolCallIndex}_$toolName'),
+          );
+        }
+
+        expect([
+          'tool_0_echo_tool',
+          'tool_1_echo_tool',
+          'tool_2_echo_tool',
+        ], orderedEquals(indices.map((i) => 'tool_${i}_$toolName').toList()));
+      },
+    );
+
+    test(
+      'assigns correct toolCallIndex per tool call when stream has multiple tool calls with null ids',
+      () async {
+        final tool = _EchoTool();
+        final toolCalls = [
+          LLMToolCall(name: tool.name, arguments: '{"a":1}', id: null),
+          LLMToolCall(name: tool.name, arguments: '{"a":2}', id: null),
+          LLMToolCall(name: tool.name, arguments: '{"a":3}', id: null),
+        ];
+
+        List<LLMMessage>? capturedMessages;
+        final chunkStream = Stream.fromIterable([
+          LLMChunk(
+            model: 'test',
+            createdAt: DateTime.now(),
+            message: LLMChunkMessage(
+              content: null,
+              role: LLMRole.assistant,
+              toolCalls: toolCalls,
+            ),
+            done: true,
+          ),
+        ]);
+
+        final executor = StreamToolExecutor(
+          tools: [tool],
+          extra: null,
+          maxToolAttempts: 1,
+          streamChatCallback: (model, messages, tools, extra, attempts) {
+            capturedMessages = messages;
+            return const Stream.empty();
+          },
+        );
+
+        await executor
+            .executeTools(
+              chunkStream: chunkStream,
+              model: 'test',
+              initialMessages: [
+                LLMMessage(role: LLMRole.user, content: 'Use the tool 3 times'),
+              ],
+              toolAttempts: 1,
+            )
+            .toList();
+
+        expect(capturedMessages, isNotNull);
+        expect(
+          capturedMessages!.length,
+          equals(4),
+        ); // 1 user + 3 tool responses
+
+        final toolMessages = capturedMessages!
+            .where((m) => m.role == LLMRole.tool)
+            .toList();
+        expect(toolMessages.length, equals(3));
+
+        expect(toolMessages[0].toolCallId, equals('tool_0_echo_tool'));
+        expect(toolMessages[1].toolCallId, equals('tool_1_echo_tool'));
+        expect(toolMessages[2].toolCallId, equals('tool_2_echo_tool'));
+
+        for (final msg in toolMessages) {
+          expect(() => Validation.validateMessage(msg), returnsNormally);
+        }
       },
     );
   });
