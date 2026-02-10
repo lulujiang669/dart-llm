@@ -96,31 +96,35 @@ void main() {
       }
     }, timeout: const Timeout(Duration(minutes: 2)));
 
-    test('batchEmbed returns same length and dimensions as embed', () async {
-      if (modelPath == null) {
-        markTestSkipped('No model available');
-        return;
-      }
+    test(
+      'batchEmbed returns same length and dimensions as embed',
+      () async {
+        if (modelPath == null) {
+          markTestSkipped('No model available');
+          return;
+        }
 
-      await repo.loadModel(modelPath!);
+        await repo.loadModel(modelPath!);
 
-      final texts = ['First', 'Second', 'Third'];
-      final embedResults = await repo
-          .embed(model: 'test', messages: texts)
-          .timeout(const Duration(seconds: 60));
-      final batchEmbedResults = await repo
-          .batchEmbed(model: 'test', messages: texts)
-          .timeout(const Duration(seconds: 60));
+        final texts = ['First', 'Second', 'Third'];
+        final embedResults = await repo
+            .embed(model: 'test', messages: texts)
+            .timeout(const Duration(seconds: 60));
+        final batchEmbedResults = await repo
+            .batchEmbed(model: 'test', messages: texts)
+            .timeout(const Duration(seconds: 60));
 
-      expect(batchEmbedResults.length, equals(texts.length));
-      expect(batchEmbedResults.length, equals(embedResults.length));
-      final dimension = embedResults[0].embedding.length;
-      for (var i = 0; i < batchEmbedResults.length; i++) {
-        expect(batchEmbedResults[i].embedding, isNotEmpty);
-        expect(batchEmbedResults[i].embedding.length, equals(dimension));
-        expect(batchEmbedResults[i].model, equals('test'));
-      }
-    }, timeout: const Timeout(Duration(minutes: 2)));
+        expect(batchEmbedResults.length, equals(texts.length));
+        expect(batchEmbedResults.length, equals(embedResults.length));
+        final dimension = embedResults[0].embedding.length;
+        for (var i = 0; i < batchEmbedResults.length; i++) {
+          expect(batchEmbedResults[i].embedding, isNotEmpty);
+          expect(batchEmbedResults[i].embedding.length, equals(dimension));
+          expect(batchEmbedResults[i].model, equals('test'));
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
 
     test(
       'embedding dimensions consistency',
