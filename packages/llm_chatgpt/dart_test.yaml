@@ -1,0 +1,8 @@
+# Tag configuration for llm_chatgpt tests.
+#
+# Tests tagged 'integration' call the live OpenAI API and are excluded in CI.
+# - CI: dart test --exclude-tags integration
+# - Local (with API key): dart test
+# - Local (integration only): dart test --tags integration
+tags:
+  integration:

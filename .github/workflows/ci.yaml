@@ -150,7 +150,7 @@ jobs:
       
       - name: Run tests with coverage
         run: |
-          cd packages/llm_chatgpt && dart test --coverage=coverage
+          cd packages/llm_chatgpt && dart test --coverage=coverage --exclude-tags integration
       
       - name: Generate coverage report
         run: |

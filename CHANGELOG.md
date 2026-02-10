@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-02-10
+
+### Added
+- **batchEmbed()** on `LLMChatRepository` (llm_core) and implementations in llm_ollama, llm_chatgpt, and llm_llamacpp. Explicit API for embedding multiple texts in one call; same signature as `embed()`, with provider-specific documentation.
+
 ## [0.1.5] - 2026-01-26
 
 **First Production Release** - This is the first release suitable for production use. All packages are now published and available on [pub.dev](https://pub.dev/publishers/brynjen/packages).

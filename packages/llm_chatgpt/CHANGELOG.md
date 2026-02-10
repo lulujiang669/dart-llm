@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-02-10
+
+### Added
+- `batchEmbed()` implementation: delegates to existing batch-capable `embed()` (OpenAI embeddings API accepts array of strings).
+
 ## [0.1.6] - 2026-02-10
 
 ### Fixed

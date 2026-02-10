@@ -53,6 +53,79 @@ void main() {
       );
 
       test(
+        'batchEmbed returns same length and dimensions as embed',
+        () async {
+          final texts = ['First', 'Second', 'Third'];
+          final embedResults = await repo
+              .embed(model: embeddingModel, messages: texts)
+              .timeout(const Duration(seconds: 60));
+          final batchEmbedResults = await repo
+              .batchEmbed(model: embeddingModel, messages: texts)
+              .timeout(const Duration(seconds: 60));
+
+          expect(batchEmbedResults.length, equals(texts.length));
+          expect(batchEmbedResults.length, equals(embedResults.length));
+          final dimension = embedResults[0].embedding.length;
+          for (var i = 0; i < batchEmbedResults.length; i++) {
+            expect(batchEmbedResults[i].embedding, isNotEmpty);
+            expect(batchEmbedResults[i].embedding.length, equals(dimension));
+            expect(batchEmbedResults[i].model, equals(embeddingModel));
+          }
+        },
+        tags: ['integration'],
+        timeout: const Timeout(Duration(minutes: 1)),
+      );
+
+      test(
+        'batchEmbed with nomic-embed-text returns correct batch of embeddings',
+        () async {
+          const model = 'nomic-embed-text';
+          final texts = [
+            'The cat sat on the mat',
+            'A cat was sitting on a mat',
+            'The weather is sunny today',
+          ];
+          final embeddings = await repo
+              .batchEmbed(model: model, messages: texts)
+              .timeout(const Duration(seconds: 60));
+
+          expect(embeddings.length, equals(texts.length));
+          expect(embeddings[0].model, equals(model));
+
+          final dimension = embeddings[0].embedding.length;
+          expect(dimension, greaterThan(0));
+          expect(dimension, lessThan(10000));
+
+          for (var i = 0; i < embeddings.length; i++) {
+            expect(embeddings[i].embedding, isNotEmpty);
+            expect(embeddings[i].embedding.length, equals(dimension));
+            expect(embeddings[i].model, equals(model));
+            for (final value in embeddings[i].embedding) {
+              expect(value.isFinite, isTrue);
+              expect(value.isNaN, isFalse);
+            }
+          }
+
+          final similarity12 = cosineSimilarity(
+            embeddings[0].embedding,
+            embeddings[1].embedding,
+          );
+          final similarity13 = cosineSimilarity(
+            embeddings[0].embedding,
+            embeddings[2].embedding,
+          );
+          expect(
+            similarity12,
+            greaterThan(similarity13),
+            reason:
+                'Similar texts (cat/mat) should have higher cosine similarity than unrelated (weather)',
+          );
+        },
+        tags: ['integration'],
+        timeout: const Timeout(Duration(minutes: 1)),
+      );
+
+      test(
         'empty string embedding',
         () async {
           final embeddings = await repo

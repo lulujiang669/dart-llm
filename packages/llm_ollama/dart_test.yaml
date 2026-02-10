@@ -1,0 +1,8 @@
+# Tag configuration for llm_ollama tests.
+#
+# Tests tagged 'integration' call a live Ollama endpoint and are excluded in CI.
+# - CI: dart test --exclude-tags integration
+# - Local (with Ollama running): dart test
+# - Local (integration only): dart test --tags integration
+tags:
+  integration:

@@ -212,6 +212,15 @@ class LlamaCppChatRepository extends LLMChatRepository {
     return _embedImpl(this, model, messages, options);
   }
 
+  @override
+  Future<List<LLMEmbedding>> batchEmbed({
+    required String model,
+    required List<String> messages,
+    Map<String, dynamic> options = const {},
+  }) async {
+    return embed(model: model, messages: messages, options: options);
+  }
+
   void dispose() {
     if (_ownsModel) {
       // ignore: deprecated_member_use_from_same_package

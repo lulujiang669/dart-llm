@@ -72,5 +72,26 @@ void main() {
       expect(embeddings[0].embedding.length, 128);
       expect(embeddings[0].model, 'test-model');
     });
+
+    test('batchEmbed returns same as embed', () async {
+      final mock = MockLLMChatRepository();
+      final messages = ['A', 'B', 'C'];
+
+      final embedResults = await mock.embed(
+        model: 'test-model',
+        messages: messages,
+      );
+      final batchEmbedResults = await mock.batchEmbed(
+        model: 'test-model',
+        messages: messages,
+      );
+
+      expect(batchEmbedResults.length, equals(embedResults.length));
+      expect(batchEmbedResults.length, equals(3));
+      for (var i = 0; i < batchEmbedResults.length; i++) {
+        expect(batchEmbedResults[i].embedding.length, 128);
+        expect(batchEmbedResults[i].model, 'test-model');
+      }
+    });
   });
 }

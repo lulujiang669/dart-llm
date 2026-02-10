@@ -244,4 +244,30 @@ abstract class LLMChatRepository {
     required List<String> messages,
     Map<String, dynamic> options = const {},
   });
+
+  /// Generates embeddings for multiple texts in a single call.
+  ///
+  /// Use this method when embedding many texts at once; providers may optimize
+  /// batch requests (e.g. one HTTP request). Same semantics as [embed] for
+  /// the given [model], [messages], and [options].
+  ///
+  /// **Provider behaviour:**
+  /// - **Ollama**: Passes array to `input`; see [Embeddings](https://docs.ollama.com/capabilities/embeddings).
+  /// - **OpenAI/ChatGPT**: `input` as array of strings (max 2048, 300k tokens total); see [Create embeddings](https://platform.openai.com/docs/api-reference/embeddings).
+  /// - **llama.cpp**: Processes each message in sequence (or via server batch when using HTTP).
+  ///
+  /// **Returns:**
+  /// A [Future<List<LLMEmbedding>>] with one embedding per element of [messages],
+  /// in the same order.
+  ///
+  /// **Throws:**
+  /// - [LLMApiException] if the API request fails
+  /// - [UnsupportedError] if embeddings are not supported by the backend
+  Future<List<LLMEmbedding>> batchEmbed({
+    required String model,
+    required List<String> messages,
+    Map<String, dynamic> options = const {},
+  }) async {
+    return embed(model: model, messages: messages, options: options);
+  }
 }

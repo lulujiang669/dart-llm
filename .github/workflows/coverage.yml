@@ -34,7 +34,7 @@ jobs:
         run: |
           cd packages/llm_core && dart test --coverage=coverage
           cd ../llm_ollama && dart test --coverage=coverage --exclude-tags integration
-          cd ../llm_chatgpt && dart test --coverage=coverage
+          cd ../llm_chatgpt && dart test --coverage=coverage --exclude-tags integration
       
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4

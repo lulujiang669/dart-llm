@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-02-10
+
+### Added
+- `batchEmbed()` on `LLMChatRepository`: explicit API for embedding multiple texts in one call. Same signature as `embed()`; default implementation delegates to `embed()`. Documented for Ollama, OpenAI, and llama.cpp backends.
+
 ## [0.1.6] - 2026-02-10
 
 ### Fixed

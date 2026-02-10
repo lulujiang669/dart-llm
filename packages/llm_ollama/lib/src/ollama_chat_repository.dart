@@ -216,4 +216,13 @@ class OllamaChatRepository extends LLMChatRepository {
         );
     }
   }
+
+  @override
+  Future<List<LLMEmbedding>> batchEmbed({
+    required String model,
+    required List<String> messages,
+    Map<String, dynamic> options = const {},
+  }) async {
+    return embed(model: model, messages: messages, options: options);
+  }
 }

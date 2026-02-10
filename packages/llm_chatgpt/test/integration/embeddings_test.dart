@@ -80,6 +80,35 @@ void main() {
       );
 
       test(
+        'batchEmbed returns same length and dimensions as embed',
+        () async {
+          if (!hasApiKey()) {
+            markTestSkipped('API key not available');
+            return;
+          }
+
+          final texts = ['First', 'Second', 'Third'];
+          final embedResults = await repo
+              .embed(model: embeddingModel, messages: texts)
+              .timeout(const Duration(seconds: 60));
+          final batchEmbedResults = await repo
+              .batchEmbed(model: embeddingModel, messages: texts)
+              .timeout(const Duration(seconds: 60));
+
+          expect(batchEmbedResults.length, equals(texts.length));
+          expect(batchEmbedResults.length, equals(embedResults.length));
+          final dimension = embedResults[0].embedding.length;
+          for (var i = 0; i < batchEmbedResults.length; i++) {
+            expect(batchEmbedResults[i].embedding, isNotEmpty);
+            expect(batchEmbedResults[i].embedding.length, equals(dimension));
+            expect(batchEmbedResults[i].model, equals(embeddingModel));
+          }
+        },
+        tags: ['integration'],
+        timeout: const Timeout(Duration(minutes: 1)),
+      );
+
+      test(
         'empty string embedding',
         () async {
           if (!hasApiKey()) {
