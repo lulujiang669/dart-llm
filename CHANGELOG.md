@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-02-26
+
+### Tool Calling Stream Visibility (OpenAI-compliant)
+
+- **llm_core:** Tool result chunks (`role: tool`) emitted to stream; assistant message with `tool_calls` added before tool results; content accumulation; unified `toolCallId` format (removed `toolName`)
+- **llm_ollama:** `tool_name` derived from `toolCallId` in Ollama layer; `messagesToOllamaJson()` for list-aware conversion; fallback for empty/missing tool_calls
+- **llm_chatgpt, llm_llamacpp:** Version bump for llm_core dependency; no API changes
+
 ## [0.1.7] - 2026-02-10
 
 ### Added

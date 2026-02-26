@@ -24,12 +24,11 @@ void main() {
         () async {
           final messages = [LLMMessage(role: LLMRole.user, content: '')];
 
-          final chunks = await collectStreamWithTimeout(
+          // Validation rejects empty user messages before the API call
+          await expectLater(
             repo.streamChat(chatModel, messages: messages),
-            const Duration(seconds: 90),
+            emitsError(isA<LLMApiException>()),
           );
-
-          expect(chunks, isNotEmpty);
         },
         tags: ['integration'],
         timeout: const Timeout(Duration(minutes: 2)),

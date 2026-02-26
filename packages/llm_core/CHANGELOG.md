@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-02-26
+
+### Added
+- Tool result chunks emitted to stream: `StreamToolExecutor` now yields `LLMChunk` with `role: LLMRole.tool` after each tool execution, so chat consumers can display "Tool X returned: Y" per OpenAI function calling specs
+- `LLMToolCall.toApiFormat()` helper for converting to OpenAI/Ollama API format
+- Assistant message with `tool_calls` added to message history before tool results (API-compliant sequence)
+- Content accumulation from stream chunks for assistant messages that include both text and tool calls
+
+### Changed
+- **Breaking:** Removed `toolName` from `LLMMessage` and `LLMChunkMessage`; use `toolCallId` only (OpenAI canonical format)
+- **Breaking:** Tool message validation now requires `toolCallId` (removed `toolName` option)
+- `StreamToolExecutor` accumulates content and thinking from chunks for the assistant message
+
 ## [0.1.7] - 2026-02-10
 
 ### Added

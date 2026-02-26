@@ -17,6 +17,7 @@
 /// ```
 library;
 
+import 'unit/message_converter_test.dart' as message_converter;
 import 'unit/ollama_chat_repository_builder_test.dart' as builder;
 import 'unit/ollama_chat_repository_test.dart' as ollama_chat_repository;
 import 'unit/ollama_dto_test.dart' as dto;
@@ -25,6 +26,7 @@ import 'unit/retry_test.dart' as retry;
 
 void main() {
   ollama_chat_repository.main();
+  message_converter.main();
   retry.main();
   dto.main();
   builder.main();

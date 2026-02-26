@@ -50,6 +50,15 @@ void main() {
       );
     });
 
+    test('validateMessage - tool message with toolCallId passes', () {
+      final message = LLMMessage(
+        role: LLMRole.tool,
+        content: 'result',
+        toolCallId: 'call_abc123',
+      );
+      expect(() => Validation.validateMessage(message), returnsNormally);
+    });
+
     test('validateMessage - system message without content throws', () {
       final message = LLMMessage(role: LLMRole.system);
       expect(

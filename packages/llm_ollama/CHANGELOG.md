@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-02-26
+
+### Added
+- `OllamaMessageConverter.messagesToOllamaJson()` for list-aware conversion; derives `tool_name` from `toolCallId` via preceding assistant's `tool_calls` or synthetic ID parsing
+- Fallback chain for tool_name: lookup by id, parse synthetic `tool_N_name`, or send `tool_call_id` only (Ollama supports both)
+- Thorough tool response integration tests (15 cases) validating stream contract, deterministic results, error handling, tool chains, and Ollama-specific behavior
+
+### Changed
+- Tool messages now converted via `messagesToOllamaJson()`; `tool_name` encapsulated in Ollama layer, derived from `toolCallId`
+- Replaced per-message `toJson()` with list-aware `messagesToOllamaJson()` for correct tool message conversion
+
 ## [0.1.7] - 2026-02-10
 
 ### Added

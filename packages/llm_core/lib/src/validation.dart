@@ -106,7 +106,9 @@ class Validation {
             statusCode: 400,
           );
         }
-        if (message.toolCallId == null || message.toolCallId!.isEmpty) {
+        final hasToolCallId =
+            message.toolCallId != null && message.toolCallId!.isNotEmpty;
+        if (!hasToolCallId) {
           throw LLMApiException(
             '${prefix}Tool message must have toolCallId',
             statusCode: 400,

@@ -45,5 +45,27 @@ void main() {
         '{"nested": {"value": 42}, "array": [1, 2, 3]}',
       );
     });
+
+    test('toApiFormat produces OpenAI/Ollama format', () {
+      final toolCall = LLMToolCall(
+        id: 'call_123',
+        name: 'get_weather',
+        arguments: '{"location": "Paris"}',
+      );
+      final api = toolCall.toApiFormat();
+      expect(api['id'], 'call_123');
+      expect(api['type'], 'function');
+      expect(api['function'], isA<Map<String, dynamic>>());
+      expect(api['function']['name'], 'get_weather');
+      expect(api['function']['arguments'], '{"location": "Paris"}');
+    });
+
+    test('toApiFormat omits id when null', () {
+      final toolCall = LLMToolCall(id: null, name: 'echo', arguments: '{}');
+      final api = toolCall.toApiFormat();
+      expect(api.containsKey('id'), isFalse);
+      expect(api['type'], 'function');
+      expect(api['function']['name'], 'echo');
+    });
   });
 }

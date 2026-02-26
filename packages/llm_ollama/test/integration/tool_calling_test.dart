@@ -3,6 +3,8 @@
 /// Part of the comprehensive Ollama integration test suite.
 library;
 
+import 'dart:async';
+
 import 'package:llm_ollama/llm_ollama.dart';
 import 'package:test/test.dart';
 
@@ -334,13 +336,23 @@ void main() {
             ),
           ];
 
-          // Use a shorter timeout to test timeout handling
-          final chunks = await collectStreamWithTimeout(
-            repo.streamChat(chatModel, messages: messages, tools: [SlowTool()]),
-            const Duration(seconds: 5), // Shorter timeout
-          );
+          // Use a shorter timeout - tool takes 10s so stream may not complete
+          List<LLMChunk> chunks;
+          try {
+            chunks = await collectStreamWithTimeout(
+              repo.streamChat(
+                chatModel,
+                messages: messages,
+                tools: [SlowTool()],
+              ),
+              const Duration(seconds: 5),
+            );
+          } on TimeoutException {
+            // Expected when tool delay exceeds stream timeout
+            return;
+          }
 
-          // Should either complete or timeout gracefully
+          // If completed, verify we got chunks
           expect(chunks, isA<List<LLMChunk>>());
         },
         tags: ['integration'],

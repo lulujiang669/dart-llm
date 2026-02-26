@@ -66,9 +66,15 @@ class StreamToolExecutor {
 
     final List<LLMMessage> workingMessages = List.from(initialMessages);
     final List<LLMToolCall> collectedToolCalls = [];
+    var accumulatedContent = '';
 
     await for (final chunk in chunkStream) {
       yield chunk;
+
+      // Accumulate content from chunks for the assistant message
+      if (chunk.message?.content != null) {
+        accumulatedContent += chunk.message!.content!;
+      }
 
       // Collect tool calls from chunks
       if (chunk.message?.toolCalls != null &&
@@ -78,6 +84,17 @@ class StreamToolExecutor {
 
       // When the stream is done and we have tool calls, execute them
       if ((chunk.done ?? false) && collectedToolCalls.isNotEmpty) {
+        // Add assistant message with tool_calls (required for API compliance)
+        workingMessages.add(
+          LLMMessage(
+            role: LLMRole.assistant,
+            content: accumulatedContent.isEmpty ? null : accumulatedContent,
+            toolCalls: collectedToolCalls
+                .map((tc) => tc.toApiFormat())
+                .toList(growable: false),
+          ),
+        );
+
         // Execute all collected tools
         var toolCallIndex = 0;
         for (final toolCall in collectedToolCalls) {
@@ -108,11 +125,25 @@ class StreamToolExecutor {
               ? toolCall.id!
               : 'tool_${toolCallIndex}_${toolCall.name}';
 
+          final toolResponseStr = toolResponse is String
+              ? toolResponse
+              : toolResponse.toString();
+
+          // Emit tool result chunk so the chat can display it
+          yield LLMChunk(
+            model: model,
+            createdAt: DateTime.now(),
+            message: LLMChunkMessage(
+              content: toolResponseStr,
+              role: LLMRole.tool,
+              toolCallId: effectiveToolCallId,
+            ),
+            done: false,
+          );
+
           workingMessages.add(
             LLMMessage(
-              content: toolResponse is String
-                  ? toolResponse
-                  : toolResponse.toString(),
+              content: toolResponseStr,
               role: LLMRole.tool,
               toolCallId: effectiveToolCallId,
             ),

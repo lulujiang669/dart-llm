@@ -42,6 +42,7 @@ library;
 import 'basic_chat_test.dart' as basic_chat;
 import 'chat_history_test.dart' as chat_history;
 import 'tool_calling_test.dart' as tool_calling;
+import 'tool_response_integration_test.dart' as tool_response;
 import 'embeddings_test.dart' as embeddings;
 import 'thinking_mode_test.dart' as thinking_mode;
 import 'error_handling_test.dart' as error_handling;
@@ -53,6 +54,7 @@ void main() {
   basic_chat.main();
   chat_history.main();
   tool_calling.main();
+  tool_response.main();
   embeddings.main();
   thinking_mode.main();
   error_handling.main();

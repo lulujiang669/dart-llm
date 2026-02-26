@@ -144,8 +144,14 @@ void main() {
         expect(capturedMessages, isNotNull);
         expect(
           capturedMessages!.length,
-          equals(4),
-        ); // 1 user + 3 tool responses
+          equals(5),
+        ); // 1 user + 1 assistant + 3 tool responses
+
+        final assistantMessage = capturedMessages!
+            .where((m) => m.role == LLMRole.assistant)
+            .single;
+        expect(assistantMessage.toolCalls, isNotNull);
+        expect(assistantMessage.toolCalls!.length, equals(3));
 
         final toolMessages = capturedMessages!
             .where((m) => m.role == LLMRole.tool)
@@ -161,5 +167,52 @@ void main() {
         }
       },
     );
+
+    test('emits tool result chunks so chat can display them', () async {
+      final tool = _EchoTool();
+      final toolCalls = [
+        LLMToolCall(name: tool.name, arguments: '{"a":1}', id: null),
+      ];
+
+      final chunkStream = Stream.fromIterable([
+        LLMChunk(
+          model: 'test',
+          createdAt: DateTime.now(),
+          message: LLMChunkMessage(
+            content: null,
+            role: LLMRole.assistant,
+            toolCalls: toolCalls,
+          ),
+          done: true,
+        ),
+      ]);
+
+      final executor = StreamToolExecutor(
+        tools: [tool],
+        extra: null,
+        maxToolAttempts: 1,
+        streamChatCallback: (model, messages, tools, extra, attempts) =>
+            const Stream.empty(),
+      );
+
+      final chunks = await executor
+          .executeTools(
+            chunkStream: chunkStream,
+            model: 'test',
+            initialMessages: [LLMMessage(role: LLMRole.user, content: 'Echo')],
+            toolAttempts: 1,
+          )
+          .toList();
+
+      final toolResultChunks = chunks
+          .where((c) => c.message?.role == LLMRole.tool)
+          .toList();
+      expect(toolResultChunks.length, equals(1));
+      expect(toolResultChunks[0].message?.content, equals('{"a":1}'));
+      expect(
+        toolResultChunks[0].message?.toolCallId,
+        equals('tool_0_echo_tool'),
+      );
+    });
   });
 }

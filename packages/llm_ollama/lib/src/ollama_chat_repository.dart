@@ -104,9 +104,7 @@ class OllamaChatRepository extends LLMChatRepository {
 
     final body = {
       'model': model,
-      'messages': messages
-          .map((msg) => OllamaMessageConverter.toJson(msg))
-          .toList(growable: false),
+      'messages': OllamaMessageConverter.messagesToOllamaJson(messages),
       'stream': true,
       'think': merged.think,
     };

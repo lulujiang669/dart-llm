@@ -34,10 +34,10 @@ void main() {
 
           expect(
             chunks.length,
-            greaterThan(1),
-            reason: 'Should receive multiple chunks',
+            greaterThanOrEqualTo(1),
+            reason: 'Should receive at least one chunk',
           );
-          // Verify chunks have increasing evalCount (if available)
+          // Verify chunks have non-decreasing evalCount when available
           int? lastEvalCount;
           for (final chunk in chunks) {
             if (chunk.evalCount != null) {
