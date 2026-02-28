@@ -29,7 +29,7 @@ class ChatGPTChatRepository extends LLMChatRepository {
   ChatGPTChatRepository({
     required this.apiKey,
     this.baseUrl = 'https://api.openai.com',
-    this.maxToolAttempts = 25,
+    this.maxToolAttempts = 90,
     this.retryConfig,
     this.timeoutConfig,
     http.Client? httpClient,
@@ -136,7 +136,14 @@ class ChatGPTChatRepository extends LLMChatRepository {
                     messages: messages,
                     tools: tools,
                     extra: extra,
-                    toolAttempts: toolAttempts,
+                    options: StreamChatOptions(
+                      think: merged.think,
+                      tools: tools,
+                      extra: extra,
+                      toolAttempts: toolAttempts,
+                      autoExecuteTools: merged.autoExecuteTools,
+                      backendOptions: merged.backendOptions,
+                    ),
                   ),
             );
             yield* executor.executeTools(

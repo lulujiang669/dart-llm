@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-02-28
+
+### Changed
+- `maxToolAttempts` default increased from 25 to 90
+- Bumped `llm_core` dependency to ^0.1.9
+
 ## [0.1.8] - 2026-02-26
 
 ### Changed

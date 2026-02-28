@@ -30,7 +30,7 @@ import 'package:llm_ollama/src/ollama_stream_converter.dart';
 class OllamaChatRepository extends LLMChatRepository {
   OllamaChatRepository({
     String? baseUrl,
-    this.maxToolAttempts = 25,
+    this.maxToolAttempts = 90,
     this.retryConfig,
     this.timeoutConfig,
     http.Client? httpClient,
@@ -102,7 +102,7 @@ class OllamaChatRepository extends LLMChatRepository {
       }
     }
 
-    final body = {
+    final body = <String, dynamic>{
       'model': model,
       'messages': OllamaMessageConverter.messagesToOllamaJson(messages),
       'stream': true,
@@ -113,6 +113,7 @@ class OllamaChatRepository extends LLMChatRepository {
           .map((tool) => tool.toJson)
           .toList(growable: false);
     }
+    _applyBackendOptions(body, merged.backendOptions);
 
     final response = await _httpHelper.sendStreamingRequest(
       method: 'POST',
@@ -129,7 +130,7 @@ class OllamaChatRepository extends LLMChatRepository {
             response,
             timeoutConfig: timeoutConfig,
           );
-          if (merged.tools.isNotEmpty) {
+          if (merged.tools.isNotEmpty && merged.autoExecuteTools) {
             final executor = StreamToolExecutor(
               tools: merged.tools,
               extra: merged.extra,
@@ -146,7 +147,14 @@ class OllamaChatRepository extends LLMChatRepository {
                     messages: messages,
                     tools: tools,
                     extra: extra,
-                    toolAttempts: toolAttempts,
+                    options: StreamChatOptions(
+                      think: merged.think,
+                      tools: tools,
+                      extra: extra,
+                      toolAttempts: toolAttempts,
+                      autoExecuteTools: merged.autoExecuteTools,
+                      backendOptions: merged.backendOptions,
+                    ),
                   ),
             );
             yield* executor.executeTools(
@@ -222,5 +230,23 @@ class OllamaChatRepository extends LLMChatRepository {
     Map<String, dynamic> options = const {},
   }) async {
     return embed(model: model, messages: messages, options: options);
+  }
+
+  void _applyBackendOptions(
+    Map<String, dynamic> body,
+    Map<String, dynamic> backendOptions,
+  ) {
+    if (backendOptions['format'] != null) {
+      body['format'] = backendOptions['format'];
+    }
+    if (backendOptions['options'] != null) {
+      body['options'] = backendOptions['options'];
+    }
+    final keepAlive = backendOptions.containsKey('keep_alive')
+        ? backendOptions['keep_alive']
+        : backendOptions['keepAlive'];
+    if (keepAlive != null) {
+      body['keep_alive'] = keepAlive;
+    }
   }
 }

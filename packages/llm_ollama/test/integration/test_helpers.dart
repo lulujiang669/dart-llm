@@ -3,6 +3,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:llm_ollama/llm_ollama.dart';
@@ -12,8 +13,8 @@ import 'package:test/test.dart';
 // Test Configuration
 // ============================================================================
 
-const baseUrl = 'http://192.168.0.74:11434';
-const chatModel = 'gpt-oss:20b';
+const baseUrl = 'http://ollama.brynje.net';
+const chatModel = 'glm-4.7-flash';
 const embeddingModel = 'nomic-embed-text';
 
 // ============================================================================
@@ -425,5 +426,118 @@ class ComplexTool extends LLMTool {
   @override
   Future<dynamic> execute(Map<String, dynamic> args, {dynamic extra}) async {
     return jsonEncode({'processed': true, 'config': args['config']});
+  }
+}
+
+/// Reads a file from the filesystem. For integration tests only.
+/// [extra] must contain 'basePath' (String) - only paths under basePath are allowed.
+class ReadFileTool extends LLMTool {
+  @override
+  String get name => 'read_file';
+
+  @override
+  String get description =>
+      'Reads the contents of a file at the given path. Use for reading files.';
+
+  @override
+  List<LLMToolParam> get parameters => [
+    LLMToolParam(
+      name: 'path',
+      type: 'string',
+      description: 'The path to the file to read',
+      isRequired: true,
+    ),
+  ];
+
+  @override
+  Future<dynamic> execute(Map<String, dynamic> args, {dynamic extra}) async {
+    final path = args['path'] as String;
+    final basePath = extra is Map ? extra['basePath'] as String? : null;
+    if (basePath == null) {
+      return 'Error: basePath not provided in extra';
+    }
+    final resolved = _resolvePath(path, basePath);
+    if (resolved == null) {
+      return 'Error: path must be under basePath';
+    }
+    final file = File(resolved);
+    if (!file.existsSync()) {
+      return 'Error: file not found: $path';
+    }
+    return file.readAsStringSync();
+  }
+
+  String? _resolvePath(String path, String basePath) {
+    if (path.contains('..')) return null;
+    final base = basePath.endsWith(Platform.pathSeparator)
+        ? basePath
+        : '$basePath${Platform.pathSeparator}';
+    final normalized = path.startsWith('/') || path.startsWith(r'\')
+        ? path.substring(1)
+        : path;
+    final full = '$base$normalized';
+    final abs = File(full).absolute.path;
+    final baseAbs = Directory(basePath).absolute.path;
+    if (!abs.startsWith(baseAbs)) return null;
+    return abs;
+  }
+}
+
+/// Writes content to a file. For integration tests only.
+/// [extra] must contain 'basePath' (String) - only paths under basePath are allowed.
+class WriteFileTool extends LLMTool {
+  @override
+  String get name => 'write_file';
+
+  @override
+  String get description =>
+      'Writes content to a file at the given path. Use for writing files.';
+
+  @override
+  List<LLMToolParam> get parameters => [
+    LLMToolParam(
+      name: 'path',
+      type: 'string',
+      description: 'The path to the file to write',
+      isRequired: true,
+    ),
+    LLMToolParam(
+      name: 'content',
+      type: 'string',
+      description: 'The content to write to the file',
+      isRequired: true,
+    ),
+  ];
+
+  @override
+  Future<dynamic> execute(Map<String, dynamic> args, {dynamic extra}) async {
+    final path = args['path'] as String;
+    final content = args['content'] as String;
+    final basePath = extra is Map ? extra['basePath'] as String? : null;
+    if (basePath == null) {
+      return 'Error: basePath not provided in extra';
+    }
+    final resolved = _resolvePath(path, basePath);
+    if (resolved == null) {
+      return 'Error: path must be under basePath';
+    }
+    final file = File(resolved);
+    file.writeAsStringSync(content);
+    return 'Wrote ${content.length} bytes to $path';
+  }
+
+  String? _resolvePath(String path, String basePath) {
+    if (path.contains('..')) return null;
+    final base = basePath.endsWith(Platform.pathSeparator)
+        ? basePath
+        : '$basePath${Platform.pathSeparator}';
+    final normalized = path.startsWith('/') || path.startsWith(r'\')
+        ? path.substring(1)
+        : path;
+    final full = '$base$normalized';
+    final abs = File(full).absolute.path;
+    final baseAbs = Directory(basePath).absolute.path;
+    if (!abs.startsWith(baseAbs)) return null;
+    return abs;
   }
 }

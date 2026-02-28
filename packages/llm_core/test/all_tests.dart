@@ -25,6 +25,8 @@ import 'unit/llm_tool_param_test.dart' as llm_tool_param;
 import 'unit/llm_tool_test.dart' as llm_tool;
 import 'unit/retry_config_test.dart' as retry_config;
 import 'unit/stream_chat_options_test.dart' as stream_chat_options;
+import 'unit/stream_chat_options_merger_test.dart'
+    as stream_chat_options_merger;
 import 'unit/timeout_config_test.dart' as timeout_config;
 import 'unit/validation_test.dart' as validation;
 import 'unit/validation_comprehensive_test.dart' as validation_comprehensive;
@@ -38,6 +40,7 @@ void main() {
   retry_util.main();
   timeout_config.main();
   stream_chat_options.main();
+  stream_chat_options_merger.main();
   metrics.main();
   chat_response.main();
   llm_message.main();

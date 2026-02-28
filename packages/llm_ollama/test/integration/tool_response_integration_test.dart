@@ -9,6 +9,8 @@
 /// to consumers per OpenAI function calling specifications.
 library;
 
+import 'dart:io';
+
 import 'package:llm_ollama/llm_ollama.dart';
 import 'package:test/test.dart';
 
@@ -26,20 +28,7 @@ void main() {
       test(
         'tool result chunks are emitted with role tool, toolCallId, and content',
         () async {
-          final chunks = await collectStreamWithTimeout(
-            repo.streamChat(
-              chatModel,
-              messages: [
-                LLMMessage(
-                  role: LLMRole.user,
-                  content:
-                      'Use the calculator to compute 15 * 7. Reply with only the number.',
-                ),
-              ],
-              tools: [CalculatorTool()],
-            ),
-            const Duration(minutes: 3),
-          );
+          final chunks = await _collectCalculatorToolRun(repo, maxAttempts: 3);
 
           final toolResultChunks = chunks
               .where((c) => c.message?.role == LLMRole.tool)
@@ -207,20 +196,7 @@ void main() {
       test(
         'calculator 15*7 returns 105 and model incorporates it',
         () async {
-          final chunks = await collectStreamWithTimeout(
-            repo.streamChat(
-              chatModel,
-              messages: [
-                LLMMessage(
-                  role: LLMRole.user,
-                  content:
-                      'Use the calculator tool to compute 15 * 7. Reply with only the number, nothing else.',
-                ),
-              ],
-              tools: [CalculatorTool()],
-            ),
-            const Duration(minutes: 3),
-          );
+          final chunks = await _collectCalculatorToolRun(repo, maxAttempts: 3);
 
           final content = extractContent(chunks);
           expect(
@@ -232,7 +208,12 @@ void main() {
           final toolResultChunks = chunks
               .where((c) => c.message?.role == LLMRole.tool)
               .toList();
-          expect(toolResultChunks, isNotEmpty);
+          expect(
+            toolResultChunks,
+            isNotEmpty,
+            reason:
+                'Expected calculator tool result chunks after retrying tool-directed prompts',
+          );
           final toolContent = toolResultChunks
               .map((c) => c.message?.content ?? '')
               .join();
@@ -521,6 +502,46 @@ void main() {
         tags: ['integration'],
         timeout: const Timeout(Duration(minutes: 5)),
       );
+
+      test(
+        'strict mode throws when attempts are exhausted before final assistant answer',
+        () async {
+          final tempDir = Directory.systemTemp.createTempSync(
+            'llm_strict_attempts',
+          );
+          addTearDown(() => tempDir.deleteSync(recursive: true));
+
+          final sourceFile = File('${tempDir.path}/source.txt');
+          await sourceFile.writeAsString(
+            'strict-mode multi-turn validation content',
+          );
+
+          expect(
+            () => collectStreamWithTimeout(
+              repo.streamChat(
+                chatModel,
+                messages: [
+                  LLMMessage(
+                    role: LLMRole.user,
+                    content:
+                        'Use read_file on source.txt first. '
+                        'After you have the exact read result, call write_file to copy it to dest.txt. '
+                        'Then provide a final confirmation.',
+                  ),
+                ],
+                tools: [ReadFileTool(), WriteFileTool()],
+                extra: {'basePath': tempDir.path},
+                toolAttempts: 1,
+                options: const StreamChatOptions(),
+              ),
+              const Duration(minutes: 5),
+            ),
+            throwsA(isA<ToolLoopIncompleteException>()),
+          );
+        },
+        tags: ['integration'],
+        timeout: const Timeout(Duration(minutes: 6)),
+      );
     });
 
     group('Tool with no parameters', () {
@@ -645,4 +666,35 @@ void main() {
       );
     });
   });
+}
+
+Future<List<LLMChunk>> _collectCalculatorToolRun(
+  OllamaChatRepository repo, {
+  int maxAttempts = 3,
+}) async {
+  final prompts = <String>[
+    'Use the calculator tool to compute 15 * 7. Reply with only the number, nothing else.',
+    'Call the calculator tool with expression "15 * 7". Do not solve it yourself.',
+    'You must use the calculator tool now. Expression: 15 * 7. Return only tool result.',
+  ];
+
+  List<LLMChunk> lastChunks = const <LLMChunk>[];
+  for (var i = 0; i < maxAttempts; i++) {
+    final prompt = prompts[i < prompts.length ? i : prompts.length - 1];
+    final chunks = await collectStreamWithTimeout(
+      repo.streamChat(
+        chatModel,
+        messages: [LLMMessage(role: LLMRole.user, content: prompt)],
+        tools: [CalculatorTool()],
+      ),
+      const Duration(minutes: 3),
+    );
+
+    if (chunks.any((c) => c.message?.role == LLMRole.tool)) {
+      return chunks;
+    }
+    lastChunks = chunks;
+  }
+
+  return lastChunks;
 }

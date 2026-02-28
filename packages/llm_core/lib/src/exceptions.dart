@@ -76,6 +76,47 @@ class ModelLoadException implements Exception {
   String toString() => 'ModelLoadException: $message';
 }
 
+/// Exception thrown when strict tool-loop mode does not reach
+/// a final assistant answer.
+class ToolLoopIncompleteException implements Exception {
+  const ToolLoopIncompleteException({
+    required this.reason,
+    required this.attemptsUsed,
+    required this.attemptsRemaining,
+    required this.lastRoundEndedWithDone,
+    required this.lastRoundHadToolCalls,
+    required this.hadFinalAssistantResponse,
+  });
+
+  /// Short reason for why strict tool-loop completion failed.
+  final String reason;
+
+  /// Number of tool attempts consumed in the current loop context.
+  final int attemptsUsed;
+
+  /// Number of tool attempts remaining when the failure happened.
+  final int attemptsRemaining;
+
+  /// Whether the last observed model round emitted a `done == true` chunk.
+  final bool lastRoundEndedWithDone;
+
+  /// Whether the last observed model round included tool calls.
+  final bool lastRoundHadToolCalls;
+
+  /// Whether a final assistant answer (done chunk without tool calls)
+  /// was observed.
+  final bool hadFinalAssistantResponse;
+
+  @override
+  String toString() {
+    return 'ToolLoopIncompleteException: $reason '
+        '(attemptsUsed: $attemptsUsed, attemptsRemaining: $attemptsRemaining, '
+        'lastRoundEndedWithDone: $lastRoundEndedWithDone, '
+        'lastRoundHadToolCalls: $lastRoundHadToolCalls, '
+        'hadFinalAssistantResponse: $hadFinalAssistantResponse)';
+  }
+}
+
 // Backwards compatibility aliases
 @Deprecated('Use ThinkingNotSupportedException instead')
 typedef ThinkingNotAllowed = ThinkingNotSupportedException;

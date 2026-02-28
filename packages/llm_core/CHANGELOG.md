@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-02-28
+
+### Changed
+- **Breaking:** Removed `requireFinalAssistantResponse` option from `StreamChatOptions`, `StreamChatOptionsMerger`, and `StreamToolExecutor`. Tool loops now always require a final assistant response — there is no reason to allow tool loops to end without the assistant reporting back.
+- `maxToolAttempts` default increased from 25 to 90 across all repositories and builders.
+- `chatResponse()` tool loop detection refined: only actual tool result chunks (`LLMRole.tool`) trigger the incomplete-loop check, not tool calls appearing alongside content.
+
 ## [0.1.8] - 2026-02-26
 
 ### Added

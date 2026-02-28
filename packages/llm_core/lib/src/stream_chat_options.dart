@@ -22,6 +22,8 @@ class StreamChatOptions {
   /// [tools] - Optional list of tools the model can use.
   /// [extra] - Additional context to pass to tool executions.
   /// [toolAttempts] - Maximum number of tool calling attempts.
+  /// [autoExecuteTools] - Whether tool calls should be executed automatically.
+  /// [backendOptions] - Backend-specific chat options.
   /// [timeout] - Request timeout (overrides repository default).
   /// [retryConfig] - Retry configuration (overrides repository default).
   const StreamChatOptions({
@@ -29,6 +31,8 @@ class StreamChatOptions {
     this.tools = const [],
     this.extra,
     this.toolAttempts,
+    this.autoExecuteTools = true,
+    this.backendOptions = const {},
     this.timeout,
     this.retryConfig,
   });
@@ -47,6 +51,17 @@ class StreamChatOptions {
   /// If null, uses the repository's default [maxToolAttempts].
   final int? toolAttempts;
 
+  /// Whether tool calls should be executed automatically by the repository.
+  ///
+  /// Defaults to `true` for backward compatibility.
+  final bool autoExecuteTools;
+
+  /// Backend-specific chat options.
+  ///
+  /// This is useful for provider-specific request fields that are not yet
+  /// modeled as first-class parameters in the core interface.
+  final Map<String, dynamic> backendOptions;
+
   /// Request timeout (overrides repository default).
   ///
   /// If null, uses the repository's default timeout configuration.
@@ -63,6 +78,8 @@ class StreamChatOptions {
     List<LLMTool>? tools,
     dynamic extra,
     int? toolAttempts,
+    bool? autoExecuteTools,
+    Map<String, dynamic>? backendOptions,
     Duration? timeout,
     RetryConfig? retryConfig,
   }) {
@@ -71,6 +88,8 @@ class StreamChatOptions {
       tools: tools ?? this.tools,
       extra: extra ?? this.extra,
       toolAttempts: toolAttempts ?? this.toolAttempts,
+      autoExecuteTools: autoExecuteTools ?? this.autoExecuteTools,
+      backendOptions: backendOptions ?? this.backendOptions,
       timeout: timeout ?? this.timeout,
       retryConfig: retryConfig ?? this.retryConfig,
     );

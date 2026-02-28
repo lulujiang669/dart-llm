@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
 import 'package:llm_ollama/llm_ollama.dart';
 import 'package:test/test.dart';
 
@@ -6,7 +9,7 @@ void main() {
     test('creates with default values', () {
       final repo = OllamaChatRepository();
       expect(repo.baseUrl, 'http://localhost:11434');
-      expect(repo.maxToolAttempts, 25);
+      expect(repo.maxToolAttempts, 90);
     });
 
     test('creates with custom configuration', () {
@@ -65,4 +68,249 @@ void main() {
       );
     });
   });
+
+  group('OllamaChatRepository tool loop behavior', () {
+    test(
+      'autoExecuteTools false exposes tool calls without executing tools',
+      () async {
+        final client = _QueueStreamClient([
+          _streamResponse({
+            'model': 'test-model',
+            'created_at': '2024-01-01T00:00:00.000Z',
+            'message': {
+              'role': 'assistant',
+              'tool_calls': [
+                {
+                  'id': 'call_1',
+                  'function': {
+                    'name': 'calculator',
+                    'arguments': {'expression': '2 + 2'},
+                  },
+                },
+              ],
+            },
+            'done': true,
+          }),
+        ]);
+        final repo = OllamaChatRepository(
+          baseUrl: 'http://localhost:11434',
+          httpClient: client,
+        );
+
+        final chunks = await repo
+            .streamChat(
+              'test-model',
+              messages: [LLMMessage(role: LLMRole.user, content: '2+2?')],
+              tools: [CalculatorTool()],
+              options: const StreamChatOptions(autoExecuteTools: false),
+            )
+            .toList();
+
+        expect(client.sendCount, 1);
+        expect(
+          chunks.any((c) => (c.message?.toolCalls ?? const []).isNotEmpty),
+          isTrue,
+        );
+        expect(chunks.any((c) => c.message?.role == LLMRole.tool), isFalse);
+      },
+    );
+
+    test(
+      'autoExecuteTools true executes tools and continues chat loop',
+      () async {
+        final client = _QueueStreamClient([
+          _streamResponse({
+            'model': 'test-model',
+            'created_at': '2024-01-01T00:00:00.000Z',
+            'message': {
+              'role': 'assistant',
+              'tool_calls': [
+                {
+                  'id': 'call_1',
+                  'function': {
+                    'name': 'calculator',
+                    'arguments': {'expression': '2 + 2'},
+                  },
+                },
+              ],
+            },
+            'done': true,
+          }),
+          _streamResponse({
+            'model': 'test-model',
+            'created_at': '2024-01-01T00:00:01.000Z',
+            'message': {'role': 'assistant', 'content': '4'},
+            'done': true,
+          }),
+        ]);
+        final repo = OllamaChatRepository(
+          baseUrl: 'http://localhost:11434',
+          httpClient: client,
+        );
+
+        final chunks = await repo
+            .streamChat(
+              'test-model',
+              messages: [LLMMessage(role: LLMRole.user, content: '2+2?')],
+              tools: [CalculatorTool()],
+            )
+            .toList();
+
+        expect(client.sendCount, 2);
+        expect(chunks.any((c) => c.message?.role == LLMRole.tool), isTrue);
+      },
+    );
+
+    test('backendOptions are mapped to Ollama request body', () async {
+      final client = _QueueStreamClient([
+        _streamResponse({
+          'model': 'test-model',
+          'created_at': '2024-01-01T00:00:00.000Z',
+          'message': {'role': 'assistant', 'content': 'ok'},
+          'done': true,
+        }),
+      ]);
+      final repo = OllamaChatRepository(
+        baseUrl: 'http://localhost:11434',
+        httpClient: client,
+      );
+
+      await repo
+          .streamChat(
+            'test-model',
+            messages: [LLMMessage(role: LLMRole.user, content: 'hello')],
+            options: const StreamChatOptions(
+              backendOptions: {
+                'format': 'json',
+                'options': {'temperature': 0},
+                'keepAlive': '5m',
+              },
+            ),
+          )
+          .toList();
+
+      final requestBody = client.requestBodies.single;
+      expect(requestBody['format'], 'json');
+      expect(requestBody['options'], {'temperature': 0});
+      expect(requestBody['keep_alive'], '5m');
+      expect(requestBody.containsKey('keepAlive'), isFalse);
+    });
+
+    test(
+      'strict mode throws when tool attempts are exhausted before final assistant answer',
+      () async {
+        final client = _QueueStreamClient([
+          _streamResponse({
+            'model': 'test-model',
+            'created_at': '2024-01-01T00:00:00.000Z',
+            'message': {
+              'role': 'assistant',
+              'tool_calls': [
+                {
+                  'id': 'call_1',
+                  'function': {
+                    'name': 'calculator',
+                    'arguments': {'expression': '2 + 2'},
+                  },
+                },
+              ],
+            },
+            'done': true,
+          }),
+          _streamResponse({
+            'model': 'test-model',
+            'created_at': '2024-01-01T00:00:01.000Z',
+            'message': {
+              'role': 'assistant',
+              'tool_calls': [
+                {
+                  'id': 'call_2',
+                  'function': {
+                    'name': 'calculator',
+                    'arguments': {'expression': '3 + 3'},
+                  },
+                },
+              ],
+            },
+            'done': true,
+          }),
+        ]);
+        final repo = OllamaChatRepository(
+          baseUrl: 'http://localhost:11434',
+          httpClient: client,
+        );
+
+        await expectLater(
+          repo
+              .streamChat(
+                'test-model',
+                messages: [LLMMessage(role: LLMRole.user, content: '2+2?')],
+                tools: [CalculatorTool()],
+                toolAttempts: 1,
+                options: const StreamChatOptions(),
+              )
+              .toList(),
+          throwsA(isA<ToolLoopIncompleteException>()),
+        );
+        expect(client.sendCount, 2);
+      },
+    );
+  });
+}
+
+class _QueueStreamClient extends http.BaseClient {
+  _QueueStreamClient(this._responses);
+
+  final List<http.StreamedResponse> _responses;
+  final List<Map<String, dynamic>> requestBodies = [];
+  int sendCount = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final bodyBytes = await request.finalize().toBytes();
+    if (bodyBytes.isNotEmpty) {
+      requestBodies.add(
+        json.decode(utf8.decode(bodyBytes)) as Map<String, dynamic>,
+      );
+    } else {
+      requestBodies.add(const <String, dynamic>{});
+    }
+
+    if (sendCount >= _responses.length) {
+      throw StateError('No queued response for request #$sendCount');
+    }
+    final response = _responses[sendCount];
+    sendCount += 1;
+    return response;
+  }
+}
+
+class CalculatorTool extends LLMTool {
+  @override
+  String get name => 'calculator';
+
+  @override
+  String get description => 'Calculates arithmetic expressions.';
+
+  @override
+  List<LLMToolParam> get parameters => [
+    LLMToolParam(
+      name: 'expression',
+      type: 'string',
+      description: 'Arithmetic expression to evaluate.',
+      isRequired: true,
+    ),
+  ];
+
+  @override
+  Future<dynamic> execute(Map<String, dynamic> args, {dynamic extra}) async {
+    return '4';
+  }
+}
+
+http.StreamedResponse _streamResponse(Map<String, dynamic> frame) {
+  return http.StreamedResponse(
+    Stream.value(utf8.encode('${json.encode(frame)}\n')),
+    200,
+  );
 }

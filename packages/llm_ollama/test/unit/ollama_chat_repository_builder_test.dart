@@ -31,7 +31,7 @@ void main() {
           .build();
 
       expect(repo.baseUrl, 'http://custom:8080');
-      expect(repo.maxToolAttempts, 25); // Default
+      expect(repo.maxToolAttempts, 90); // Default
       expect(repo.retryConfig, null);
       expect(repo.timeoutConfig, null);
     });
@@ -40,7 +40,7 @@ void main() {
       final repo = OllamaChatRepositoryBuilder().build();
 
       expect(repo.baseUrl, 'http://localhost:11434');
-      expect(repo.maxToolAttempts, 25);
+      expect(repo.maxToolAttempts, 90);
       expect(repo.retryConfig, null);
       expect(repo.timeoutConfig, null);
     });

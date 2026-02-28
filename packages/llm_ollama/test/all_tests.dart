@@ -22,6 +22,7 @@ import 'unit/ollama_chat_repository_builder_test.dart' as builder;
 import 'unit/ollama_chat_repository_test.dart' as ollama_chat_repository;
 import 'unit/ollama_dto_test.dart' as dto;
 import 'unit/ollama_embedding_test.dart' as embedding;
+import 'unit/ollama_stream_converter_test.dart' as stream_converter;
 import 'unit/retry_test.dart' as retry;
 
 void main() {
@@ -31,4 +32,5 @@ void main() {
   dto.main();
   builder.main();
   embedding.main();
+  stream_converter.main();
 }

@@ -108,5 +108,84 @@ void main() {
 
       expect(response.content, 'Response');
     });
+
+    test('excludes tool-result chunk content from response.content', () async {
+      final mock = MockLLMChatRepository();
+      mock.setStreamChunks([
+        LLMChunk(
+          model: 'test-model',
+          createdAt: DateTime.now(),
+          message: LLMChunkMessage(content: 'Answer ', role: LLMRole.assistant),
+          done: false,
+        ),
+        LLMChunk(
+          model: 'test-model',
+          createdAt: DateTime.now(),
+          message: LLMChunkMessage(content: 'TOOL_DATA', role: LLMRole.tool),
+          done: false,
+        ),
+        LLMChunk(
+          model: 'test-model',
+          createdAt: DateTime.now(),
+          message: LLMChunkMessage(content: '42', role: LLMRole.assistant),
+          done: true,
+          promptEvalCount: 2,
+          evalCount: 2,
+        ),
+      ]);
+
+      final response = await mock.chatResponse(
+        'test-model',
+        messages: [LLMMessage(role: LLMRole.user, content: 'Question')],
+      );
+
+      expect(response.content, 'Answer 42');
+    });
+
+    test(
+      'strict mode throws when tool loop has no final assistant answer',
+      () async {
+        final mock = MockLLMChatRepository();
+        mock.setStreamChunks([
+          LLMChunk(
+            model: 'test-model',
+            createdAt: DateTime.now(),
+            message: LLMChunkMessage(
+              content: null,
+              role: LLMRole.assistant,
+              toolCalls: [
+                LLMToolCall(
+                  id: 'call_1',
+                  name: 'calculator',
+                  arguments: '{"a":2,"b":2}',
+                ),
+              ],
+            ),
+            done: true,
+            promptEvalCount: 5,
+            evalCount: 2,
+          ),
+          LLMChunk(
+            model: 'test-model',
+            createdAt: DateTime.now(),
+            message: LLMChunkMessage(
+              content: 'Result: 4',
+              role: LLMRole.tool,
+              toolCallId: 'call_1',
+            ),
+            done: false,
+          ),
+        ]);
+
+        expect(
+          () => mock.chatResponse(
+            'test-model',
+            messages: [LLMMessage(role: LLMRole.user, content: '2+2')],
+            options: const StreamChatOptions(),
+          ),
+          throwsA(isA<ToolLoopIncompleteException>()),
+        );
+      },
+    );
   });
 }

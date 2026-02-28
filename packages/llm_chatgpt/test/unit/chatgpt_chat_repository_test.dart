@@ -7,7 +7,7 @@ void main() {
       final repo = ChatGPTChatRepository(apiKey: 'test-key');
       expect(repo.apiKey, 'test-key');
       expect(repo.baseUrl, 'https://api.openai.com');
-      expect(repo.maxToolAttempts, 25);
+      expect(repo.maxToolAttempts, 90);
     });
 
     test('creates with custom configuration', () {

@@ -13,6 +13,8 @@ class StreamChatOptionsMerger {
   /// [tools] - Individual tools parameter
   /// [extra] - Individual extra parameter
   /// [toolAttempts] - Individual toolAttempts parameter
+  /// [autoExecuteTools] - Individual autoExecuteTools parameter
+  /// [backendOptions] - Individual backend options
   ///
   /// Returns a [MergedOptions] object with the effective values.
   static MergedOptions merge({
@@ -21,12 +23,16 @@ class StreamChatOptionsMerger {
     List<LLMTool> tools = const [],
     dynamic extra,
     int? toolAttempts,
+    bool autoExecuteTools = true,
+    Map<String, dynamic> backendOptions = const {},
   }) {
     return MergedOptions(
       think: options?.think ?? think,
       tools: (options?.tools.isNotEmpty ?? false) ? options!.tools : tools,
       extra: options?.extra ?? extra,
       toolAttempts: options?.toolAttempts ?? toolAttempts,
+      autoExecuteTools: options?.autoExecuteTools ?? autoExecuteTools,
+      backendOptions: options?.backendOptions ?? backendOptions,
     );
   }
 }
@@ -36,6 +42,8 @@ class MergedOptions {
   MergedOptions({
     required this.think,
     required this.tools,
+    required this.autoExecuteTools,
+    required this.backendOptions,
     this.extra,
     this.toolAttempts,
   });
@@ -44,4 +52,6 @@ class MergedOptions {
   final List<LLMTool> tools;
   final dynamic extra;
   final int? toolAttempts;
+  final bool autoExecuteTools;
+  final Map<String, dynamic> backendOptions;
 }

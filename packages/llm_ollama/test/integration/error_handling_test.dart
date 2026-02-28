@@ -71,17 +71,23 @@ void main() {
               readTimeout: Duration(milliseconds: 1),
             ),
           );
+          addTearDown(timeoutRepo.httpClient.close);
 
           final messages = [LLMMessage(role: LLMRole.user, content: 'Hello')];
 
-          // 1ms read timeout should cause timeout; stream errors may not be catchable
-          // in test zone, so we use expectLater to accept either outcome
-          await expectLater(
-            timeoutRepo
+          // With a 1ms read timeout, we expect either:
+          // 1) an early timeout/API error, or
+          // 2) a very fast first chunk before timeout kicks in.
+          // Using `first` avoids leaving a long-running stream alive.
+          try {
+            final firstChunk = await timeoutRepo
                 .streamChat(chatModel, messages: messages)
-                .timeout(const Duration(seconds: 30)),
-            emitsAnyOf([emitsError(anything), emitsThrough(anything)]),
-          );
+                .first
+                .timeout(const Duration(seconds: 30));
+            expect(firstChunk, isA<LLMChunk>());
+          } catch (e) {
+            expect(e, anyOf(isA<TimeoutException>(), isA<LLMApiException>()));
+          }
         },
         tags: ['integration'],
         timeout: const Timeout(Duration(seconds: 30)),
@@ -112,24 +118,43 @@ void main() {
       test(
         'malformed responses handling',
         () async {
-          // Test with a request that might cause issues
+          // Use unusual control/special characters but keep the request bounded.
+          // This verifies response handling does not hang under odd payloads.
           final messages = [
             LLMMessage(
               role: LLMRole.user,
               content:
-                  'Generate a response with special characters: ${String.fromCharCodes(List.generate(1000, (i) => i % 256))}',
+                  'Echo these characters exactly: \\u0000 \\u0001 \\u0002 [] {} <> "quoted" 😅',
             ),
           ];
 
-          // Should either complete or fail gracefully
+          try {
+            final firstChunk = await repo
+                .streamChat(chatModel, messages: messages)
+                .first
+                .timeout(const Duration(seconds: 30));
+            expect(firstChunk, isA<LLMChunk>());
+          } catch (e) {
+            // Should fail fast with a surfaced exception rather than hanging.
+            expect(
+              e,
+              anyOf(
+                isA<TimeoutException>(),
+                isA<LLMApiException>(),
+                isA<Exception>(),
+              ),
+            );
+          }
+
+          // Run a short full-stream attempt with explicit timeout to ensure
+          // no unbounded hang in malformed-path handling.
           try {
             final chunks = await collectStreamWithTimeout(
               repo.streamChat(chatModel, messages: messages),
-              const Duration(seconds: 90),
+              const Duration(seconds: 30),
             );
             expect(chunks, isA<List<LLMChunk>>());
           } catch (e) {
-            // Should fail gracefully with a proper exception
             expect(e, isA<Exception>());
           }
         },

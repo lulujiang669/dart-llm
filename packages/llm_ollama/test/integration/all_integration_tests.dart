@@ -43,22 +43,26 @@ import 'basic_chat_test.dart' as basic_chat;
 import 'chat_history_test.dart' as chat_history;
 import 'tool_calling_test.dart' as tool_calling;
 import 'tool_response_integration_test.dart' as tool_response;
+import 'multi_turn_tool_calling_test.dart' as multi_turn_tools;
 import 'embeddings_test.dart' as embeddings;
 import 'thinking_mode_test.dart' as thinking_mode;
 import 'error_handling_test.dart' as error_handling;
 import 'edge_cases_test.dart' as edge_cases;
 import 'model_info_test.dart' as model_info;
 import 'streaming_test.dart' as streaming;
+import 'stream_chunk_boundary_tool_loop_test.dart' as chunk_boundary;
 
 void main() {
   basic_chat.main();
   chat_history.main();
   tool_calling.main();
   tool_response.main();
+  multi_turn_tools.main();
   embeddings.main();
   thinking_mode.main();
   error_handling.main();
   edge_cases.main();
   model_info.main();
   streaming.main();
+  chunk_boundary.main();
 }

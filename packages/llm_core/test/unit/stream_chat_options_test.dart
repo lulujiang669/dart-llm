@@ -11,6 +11,8 @@ void main() {
       expect(options.tools, isEmpty);
       expect(options.extra, null);
       expect(options.toolAttempts, null);
+      expect(options.autoExecuteTools, isTrue);
+      expect(options.backendOptions, isEmpty);
       expect(options.timeout, null);
       expect(options.retryConfig, null);
     });
@@ -29,12 +31,16 @@ void main() {
         think: true,
         extra: {'key': 'value'},
         toolAttempts: 10,
+        autoExecuteTools: false,
+        backendOptions: {'format': 'json', 'keep_alive': '5m'},
         timeout: Duration(minutes: 5),
         retryConfig: retryConfig,
       );
 
       expect(options.think, true);
       expect(options.toolAttempts, 10);
+      expect(options.autoExecuteTools, isFalse);
+      expect(options.backendOptions['format'], 'json');
       expect(options.timeout, const Duration(minutes: 5));
       expect(options.retryConfig, retryConfig);
     });
@@ -66,6 +72,16 @@ void main() {
       final withAttempts = original.copyWith(toolAttempts: 5);
       expect(withAttempts.toolAttempts, 5);
 
+      // Copy with autoExecuteTools
+      final withAutoExecuteTools = original.copyWith(autoExecuteTools: false);
+      expect(withAutoExecuteTools.autoExecuteTools, false);
+
+      // Copy with backendOptions
+      final withBackendOptions = original.copyWith(
+        backendOptions: {'format': 'json'},
+      );
+      expect(withBackendOptions.backendOptions['format'], 'json');
+
       // Copy with timeout
       final withTimeout = original.copyWith(
         timeout: const Duration(minutes: 10),
@@ -82,6 +98,10 @@ void main() {
         tools: [tool],
         extra: {'key': 'value'},
         toolAttempts: 5,
+        autoExecuteTools: false,
+        backendOptions: {
+          'options': {'temperature': 0},
+        },
         timeout: const Duration(minutes: 10),
         retryConfig: retryConfig,
       );
@@ -89,6 +109,8 @@ void main() {
       expect(withMultiple.tools.length, 1);
       expect(withMultiple.extra, {'key': 'value'});
       expect(withMultiple.toolAttempts, 5);
+      expect(withMultiple.autoExecuteTools, false);
+      expect(withMultiple.backendOptions['options'], {'temperature': 0});
       expect(withMultiple.timeout, const Duration(minutes: 10));
       expect(withMultiple.retryConfig, retryConfig);
     });
@@ -126,12 +148,17 @@ void main() {
 
     test('can use copyWith to modify options', () {
       const original = StreamChatOptions(toolAttempts: 3);
-      final modified = original.copyWith(think: true, toolAttempts: 5);
+      final modified = original.copyWith(
+        think: true,
+        toolAttempts: 5,
+        autoExecuteTools: false,
+      );
 
       expect(original.think, false);
       expect(original.toolAttempts, 3);
       expect(modified.think, true);
       expect(modified.toolAttempts, 5);
+      expect(modified.autoExecuteTools, false);
     });
   });
 }

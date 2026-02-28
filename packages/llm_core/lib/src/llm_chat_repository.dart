@@ -1,5 +1,6 @@
 import 'package:llm_core/src/llm_chunk.dart';
 import 'package:llm_core/src/llm_embedding.dart';
+import 'package:llm_core/src/exceptions.dart';
 import 'package:llm_core/src/llm_message.dart';
 import 'package:llm_core/src/llm_response.dart';
 import 'package:llm_core/src/stream_chat_options.dart';
@@ -158,6 +159,9 @@ abstract class LLMChatRepository {
     String? doneReason;
     String? responseModel;
     DateTime? createdAt;
+    var sawToolLoop = false;
+    var sawFinalAssistantAnswer = false;
+    var sawDoneChunk = false;
 
     await for (final chunk in streamChat(
       model,
@@ -171,23 +175,49 @@ abstract class LLMChatRepository {
       createdAt ??= chunk.createdAt ?? DateTime.now();
 
       if (chunk.message != null) {
-        if (chunk.message!.content != null) {
+        if (chunk.message!.role == LLMRole.tool) {
+          sawToolLoop = true;
+        }
+
+        if (chunk.message!.role == LLMRole.assistant &&
+            chunk.message!.content != null) {
           content = (content ?? '') + (chunk.message!.content ?? '');
         }
-        if (chunk.message!.thinking != null) {
+        if (chunk.message!.role == LLMRole.assistant &&
+            chunk.message!.thinking != null) {
           thinking = (thinking ?? '') + (chunk.message!.thinking ?? '');
         }
         // Only capture tool calls from the final response (when done is true)
         if ((chunk.done ?? false) && chunk.message!.toolCalls != null) {
           finalToolCalls = chunk.message!.toolCalls;
         }
+
+        if ((chunk.done ?? false) &&
+            chunk.message!.role == LLMRole.assistant &&
+            (chunk.message!.toolCalls == null ||
+                chunk.message!.toolCalls!.isEmpty)) {
+          sawFinalAssistantAnswer = true;
+        }
       }
 
       if (chunk.done ?? false) {
+        sawDoneChunk = true;
         promptEvalCount = chunk.promptEvalCount;
         evalCount = chunk.evalCount;
         doneReason = 'stop'; // Default, backends may override
       }
+    }
+
+    if (sawToolLoop && !sawFinalAssistantAnswer) {
+      throw ToolLoopIncompleteException(
+        reason:
+            'chatResponse finished without a final assistant answer after tool loop',
+        attemptsUsed: 0,
+        attemptsRemaining: 0,
+        lastRoundEndedWithDone: sawDoneChunk,
+        lastRoundHadToolCalls: sawToolLoop,
+        hadFinalAssistantResponse: false,
+      );
     }
 
     return LLMResponse(

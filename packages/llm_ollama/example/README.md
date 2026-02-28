@@ -86,7 +86,7 @@ final repo = OllamaChatRepository.builder()
 final ollamaRepo = OllamaRepository(baseUrl: 'http://localhost:11434');
 
 // List available models
-final models = await ollamaRepo.listModels();
+final models = await ollamaRepo.models();
 for (final model in models) {
   print('${model.name} - ${model.size} bytes');
 }

@@ -56,7 +56,7 @@ abstract class ChatRepositoryBuilderBase<T> {
   }
 
   /// Get the maximum tool attempts (with default).
-  int get maxToolAttemptsValue => _maxToolAttempts ?? 25;
+  int get maxToolAttemptsValue => _maxToolAttempts ?? 90;
 
   /// Get the retry configuration.
   RetryConfig? get retryConfigValue => _retryConfig;

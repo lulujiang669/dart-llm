@@ -214,5 +214,94 @@ void main() {
         equals('tool_0_echo_tool'),
       );
     });
+
+    test(
+      'strict mode throws when attempts are exhausted and model still requests tools',
+      () async {
+        final tool = _EchoTool();
+        final chunkStream = Stream.fromIterable([
+          LLMChunk(
+            model: 'test',
+            createdAt: DateTime.now(),
+            message: LLMChunkMessage(
+              content: null,
+              role: LLMRole.assistant,
+              toolCalls: [
+                LLMToolCall(
+                  name: tool.name,
+                  arguments: '{"a":1}',
+                  id: 'call_1',
+                ),
+              ],
+            ),
+            done: true,
+          ),
+        ]);
+
+        final executor = StreamToolExecutor(
+          tools: [tool],
+          extra: null,
+          maxToolAttempts: 1,
+          streamChatCallback: (model, messages, tools, extra, attempts) =>
+              const Stream.empty(),
+        );
+
+        expect(
+          () async => executor
+              .executeTools(
+                chunkStream: chunkStream,
+                model: 'test',
+                initialMessages: [
+                  LLMMessage(role: LLMRole.user, content: 'Echo'),
+                ],
+                toolAttempts: 0,
+              )
+              .toList(),
+          throwsA(isA<ToolLoopIncompleteException>()),
+        );
+      },
+    );
+
+    test(
+      'strict mode accepts final assistant answer after tool loop',
+      () async {
+        final tool = _EchoTool();
+        final chunkStream = Stream.fromIterable([
+          LLMChunk(
+            model: 'test',
+            createdAt: DateTime.now(),
+            message: LLMChunkMessage(content: 'Done', role: LLMRole.assistant),
+            done: true,
+          ),
+        ]);
+
+        final executor = StreamToolExecutor(
+          tools: [tool],
+          extra: null,
+          maxToolAttempts: 1,
+          streamChatCallback: (model, messages, tools, extra, attempts) =>
+              const Stream.empty(),
+        );
+
+        final chunks = await executor
+            .executeTools(
+              chunkStream: chunkStream,
+              model: 'test',
+              initialMessages: [
+                LLMMessage(role: LLMRole.user, content: 'Echo'),
+                LLMMessage(
+                  role: LLMRole.tool,
+                  content: '{"a":1}',
+                  toolCallId: 'call_1',
+                ),
+              ],
+              toolAttempts: 0,
+            )
+            .toList();
+
+        expect(chunks.length, 1);
+        expect(chunks.first.message?.content, 'Done');
+      },
+    );
   });
 }

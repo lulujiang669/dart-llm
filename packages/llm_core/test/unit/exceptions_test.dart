@@ -117,6 +117,29 @@ void main() {
     });
   });
 
+  group('ToolLoopIncompleteException', () {
+    test('toString includes reason and loop state', () {
+      const exception = ToolLoopIncompleteException(
+        reason: 'Tool attempts exhausted before final assistant answer',
+        attemptsUsed: 3,
+        attemptsRemaining: 0,
+        lastRoundEndedWithDone: true,
+        lastRoundHadToolCalls: true,
+        hadFinalAssistantResponse: false,
+      );
+
+      expect(
+        exception.toString(),
+        contains('ToolLoopIncompleteException: Tool attempts exhausted'),
+      );
+      expect(exception.attemptsUsed, 3);
+      expect(exception.attemptsRemaining, 0);
+      expect(exception.lastRoundEndedWithDone, isTrue);
+      expect(exception.lastRoundHadToolCalls, isTrue);
+      expect(exception.hadFinalAssistantResponse, isFalse);
+    });
+  });
+
   group('Deprecated aliases', () {
     test('ThinkingNotAllowed is deprecated alias', () {
       // Just verify the type alias exists (deprecated)

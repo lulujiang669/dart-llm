@@ -22,11 +22,13 @@ class MockLLMChatRepository extends LLMChatRepository {
   Duration _delay = Duration.zero;
   int _promptTokens = 10;
   int _generatedTokens = 5;
+  List<LLMChunk>? _customStreamChunks;
 
   /// Set the response content to return.
   void setResponse(String content) {
     _responseContent = content;
     _error = null;
+    _customStreamChunks = null;
   }
 
   /// Set tool calls to return.
@@ -38,6 +40,7 @@ class MockLLMChatRepository extends LLMChatRepository {
   void setError(Exception error) {
     _error = error;
     _responseContent = null;
+    _customStreamChunks = null;
   }
 
   /// Set delay before responding.
@@ -49,6 +52,12 @@ class MockLLMChatRepository extends LLMChatRepository {
   void setTokenCounts({int? promptTokens, int? generatedTokens}) {
     if (promptTokens != null) _promptTokens = promptTokens;
     if (generatedTokens != null) _generatedTokens = generatedTokens;
+  }
+
+  /// Set an exact stream payload for [streamChat].
+  void setStreamChunks(List<LLMChunk> chunks) {
+    _customStreamChunks = List<LLMChunk>.from(chunks);
+    _error = null;
   }
 
   @override
@@ -66,6 +75,13 @@ class MockLLMChatRepository extends LLMChatRepository {
 
     if (_error != null) {
       throw _error!;
+    }
+
+    if (_customStreamChunks != null) {
+      for (final chunk in _customStreamChunks!) {
+        yield chunk;
+      }
+      return;
     }
 
     // Emit content chunks

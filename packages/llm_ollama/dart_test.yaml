@@ -4,5 +4,10 @@
 # - CI: dart test --exclude-tags integration
 # - Local (with Ollama running): dart test
 # - Local (integration only): dart test --tags integration
+#
+# Integration tests hit a shared Ollama instance and should run serially to
+# avoid overloading large models.
+concurrency: 1
+
 tags:
   integration:

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:llm_core/src/exceptions.dart';
 import 'package:llm_core/src/llm_chunk.dart';
 import 'package:llm_core/src/llm_message.dart';
 import 'package:llm_core/src/tool/llm_tool.dart';
@@ -58,8 +59,8 @@ class StreamToolExecutor {
     required List<LLMMessage> initialMessages,
     required int toolAttempts,
   }) async* {
-    if (tools.isEmpty || toolAttempts <= 0) {
-      // No tools or no attempts left, just pass through the stream
+    if (tools.isEmpty) {
+      // No tools, just pass through the stream.
       yield* chunkStream;
       return;
     }
@@ -67,23 +68,49 @@ class StreamToolExecutor {
     final List<LLMMessage> workingMessages = List.from(initialMessages);
     final List<LLMToolCall> collectedToolCalls = [];
     var accumulatedContent = '';
+    var sawDoneChunk = false;
+    var sawFinalAssistantResponse = false;
+    var sawToolCallsInRound = false;
+    final loopPreviouslyStarted = initialMessages.any(
+      (message) => message.role == LLMRole.tool,
+    );
 
     await for (final chunk in chunkStream) {
       yield chunk;
+      final message = chunk.message;
 
       // Accumulate content from chunks for the assistant message
-      if (chunk.message?.content != null) {
-        accumulatedContent += chunk.message!.content!;
+      if (message?.role == LLMRole.assistant && message?.content != null) {
+        accumulatedContent += message!.content!;
       }
 
       // Collect tool calls from chunks
-      if (chunk.message?.toolCalls != null &&
-          chunk.message!.toolCalls!.isNotEmpty) {
-        collectedToolCalls.addAll(chunk.message!.toolCalls!);
+      if (message?.toolCalls != null && message!.toolCalls!.isNotEmpty) {
+        sawToolCallsInRound = true;
+        collectedToolCalls.addAll(message.toolCalls!);
       }
 
-      // When the stream is done and we have tool calls, execute them
+      if ((chunk.done ?? false)) {
+        sawDoneChunk = true;
+        if (message?.role == LLMRole.assistant && collectedToolCalls.isEmpty) {
+          sawFinalAssistantResponse = true;
+        }
+      }
+
+      // When the stream is done and we have tool calls, execute them.
       if ((chunk.done ?? false) && collectedToolCalls.isNotEmpty) {
+        // If attempts are exhausted, fail explicitly.
+        if (toolAttempts <= 0) {
+          throw ToolLoopIncompleteException(
+            reason: 'Tool attempts exhausted before final assistant answer',
+            attemptsUsed: _attemptsUsed(toolAttempts),
+            attemptsRemaining: toolAttempts,
+            lastRoundEndedWithDone: true,
+            lastRoundHadToolCalls: true,
+            hadFinalAssistantResponse: false,
+          );
+        }
+
         // Add assistant message with tool_calls (required for API compliance)
         workingMessages.add(
           LLMMessage(
@@ -165,5 +192,24 @@ class StreamToolExecutor {
         }
       }
     }
+
+    final toolLoopStarted = loopPreviouslyStarted || sawToolCallsInRound;
+    if (toolLoopStarted && !sawFinalAssistantResponse) {
+      throw ToolLoopIncompleteException(
+        reason: sawDoneChunk
+            ? 'Stream ended without a final assistant answer'
+            : 'Stream terminated before completion',
+        attemptsUsed: _attemptsUsed(toolAttempts),
+        attemptsRemaining: toolAttempts,
+        lastRoundEndedWithDone: sawDoneChunk,
+        lastRoundHadToolCalls: sawToolCallsInRound,
+        hadFinalAssistantResponse: sawFinalAssistantResponse,
+      );
+    }
+  }
+
+  int _attemptsUsed(int attemptsRemaining) {
+    final used = maxToolAttempts - attemptsRemaining;
+    return used < 0 ? 0 : used;
   }
 }

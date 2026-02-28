@@ -42,7 +42,7 @@ void main() {
 
       expect(repo.apiKey, 'test-api-key');
       expect(repo.baseUrl, 'https://custom.openai.com');
-      expect(repo.maxToolAttempts, 25); // Default
+      expect(repo.maxToolAttempts, 90); // Default
       expect(repo.retryConfig, null);
       expect(repo.timeoutConfig, null);
     });
@@ -54,7 +54,7 @@ void main() {
 
       expect(repo.apiKey, 'test-api-key');
       expect(repo.baseUrl, 'https://api.openai.com');
-      expect(repo.maxToolAttempts, 25);
+      expect(repo.maxToolAttempts, 90);
       expect(repo.retryConfig, null);
       expect(repo.timeoutConfig, null);
     });

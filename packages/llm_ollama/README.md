@@ -15,6 +15,12 @@ Available on [pub.dev](https://pub.dev/packages/llm_ollama).
 - Thinking mode support
 - Model management (list, pull, show, version)
 
+## Streaming Reliability Guarantees
+
+- NDJSON chunk-boundary-safe parsing: stream frames are buffered across transport chunks and parsed only when newline-terminated
+- Bounded malformed-line retries: parser tolerates up to 3 consecutive malformed non-empty lines
+- Explicit failure on persistent corruption: parser throws `LLMApiException` after retry budget exhaustion (no silent infinite dropping)
+
 ## Installation
 
 ```yaml
@@ -132,6 +138,46 @@ final options = StreamChatOptions(
 final stream = repo.streamChat('qwen3:0.6b', messages: messages, options: options);
 ```
 
+### Python-Style Parity Options
+
+`llm_ollama` defaults to automatic tool execution for backward compatibility.
+If you want `ollama-python` style manual tool loops, disable auto-execution and
+consume `toolCalls` directly from streamed chunks.
+
+```dart
+final stream = repo.streamChat(
+  'qwen3:0.6b',
+  messages: messages,
+  tools: [MyTool()],
+  options: const StreamChatOptions(
+    autoExecuteTools: false, // Manual tool loop
+  ),
+);
+
+await for (final chunk in stream) {
+  final toolCalls = chunk.message?.toolCalls ?? const [];
+  if (toolCalls.isNotEmpty) {
+    // Execute tools yourself, append tool messages, then call streamChat again.
+  }
+}
+```
+
+You can also pass Ollama chat fields supported by `ollama-python`:
+
+```dart
+final stream = repo.streamChat(
+  'qwen3:0.6b',
+  messages: messages,
+  options: const StreamChatOptions(
+    backendOptions: {
+      'format': 'json',
+      'options': {'temperature': 0},
+      'keep_alive': '5m', // or keepAlive
+    },
+  ),
+);
+```
+
 ### Model Management
 
 ```dart
@@ -212,4 +258,3 @@ final repo = OllamaChatRepository(
   ),
 );
 ```
-
