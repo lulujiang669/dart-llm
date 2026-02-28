@@ -67,18 +67,25 @@ void main() {
           );
 
           // Verify tool results: first should contain file content, second write confirmation
-          final toolContents =
-              toolResultChunks.map((c) => c.message?.content ?? '').toList();
+          final toolContents = toolResultChunks
+              .map((c) => c.message?.content ?? '')
+              .toList();
           expect(
-            toolContents.any((c) =>
-                c.contains('Hello from multi-turn test') ||
-                c.contains('Hello from multi-turn')),
+            toolContents.any(
+              (c) =>
+                  c.contains('Hello from multi-turn test') ||
+                  c.contains('Hello from multi-turn'),
+            ),
             isTrue,
             reason: 'read_file tool should return source file content',
           );
           expect(
-            toolContents.any((c) =>
-                c.contains('Wrote') || c.contains('bytes') || c.contains('dest')),
+            toolContents.any(
+              (c) =>
+                  c.contains('Wrote') ||
+                  c.contains('bytes') ||
+                  c.contains('dest'),
+            ),
             isTrue,
             reason: 'write_file tool should confirm write',
           );

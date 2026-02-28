@@ -39,9 +39,7 @@ void main() {
 
     test('throws immediately when stream frame contains error', () async {
       final response = http.StreamedResponse(
-        Stream.value(
-          utf8.encode('{"error":"model does not support chat"}\n'),
-        ),
+        Stream.value(utf8.encode('{"error":"model does not support chat"}\n')),
         200,
       );
 
@@ -60,9 +58,7 @@ void main() {
     test('throws after malformed-line retry budget is exceeded', () async {
       final response = http.StreamedResponse(
         Stream.value(
-          utf8.encode(
-            'not-json-1\nnot-json-2\nnot-json-3\nnot-json-4\n',
-          ),
+          utf8.encode('not-json-1\nnot-json-2\nnot-json-3\nnot-json-4\n'),
         ),
         200,
       );
