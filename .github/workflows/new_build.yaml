@@ -1,5 +1,4 @@
-
-name: mynewbeehh
+name: nb
 
 on:
   push:
@@ -10,37 +9,190 @@ on:
       version:
         description: 'Version to build (e.g., 0.1.0)'
         required: true
-        default: '0.8.0'
-      skip_linux:
-        description: 'Skip Linux build'
+        default: '0.2.0'
+      build_android:
+        description: 'Build Android (all ABIs)'
         type: boolean
         default: true
-      skip_macos:
-        description: 'Skip macOS builds (arm64 and x64)'
-        type: boolean
-        default: true
-      skip_windows:
-        description: 'Skip Windows build'
-        type: boolean
-        default: true
-      skip_android:
-        description: 'Skip Android builds'
+      build_linux:
+        description: 'Build Linux'
         type: boolean
         default: false
-      skip_ios:
-        description: 'Skip iOS build'
+      build_macos:
+        description: 'Build macOS'
         type: boolean
-        default: true
+        default: false
+      build_windows:
+        description: 'Build Windows'
+        type: boolean
+        default: false
+      build_ios:
+        description: 'Build iOS'
+        type: boolean
+        default: false
 
 env:
   LLAMA_CPP_DIR: packages/llm_llamacpp/llamacpp
+  ANDROID_NDK_VERSION: 26.3.11579264
+  ANDROID_MIN_SDK: 24
 
 jobs:
   # ============================================
-  # Linux x64 Build (with CUDA and Vulkan)
+  # Get llama.cpp commit hash (for consistency)
+  # ============================================
+  get-llama-commit:
+    runs-on: ubuntu-latest
+    outputs:
+      commit_hash: ${{ steps.get-commit.outputs.commit_hash }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get llama.cpp commit
+        id: get-commit
+        run: |
+          cd ${{ env.LLAMA_CPP_DIR }}
+          COMMIT_HASH=$(git rev-parse HEAD)
+          echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
+          echo "llama.cpp commit: $COMMIT_HASH"
+
+  # ============================================
+  # Android builds (using matrix for all ABIs)
+  # ============================================
+  build-android:
+    needs: get-llama-commit
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_android)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
+        include:
+          - abi: arm64-v8a
+            cmake_extra: "-DGGML_CPU_ALL_VARIANTS=ON -DGGML_CPU_KLEIDIAI=ON"
+          - abi: armeabi-v7a
+            cmake_extra: ""
+          - abi: x86_64
+            cmake_extra: "-DGGML_CPU_ALL_VARIANTS=ON"
+          - abi: x86
+            cmake_extra: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Verify llama.cpp commit
+        run: |
+          cd ${{ env.LLAMA_CPP_DIR }}
+          CURRENT_COMMIT=$(git rev-parse HEAD)
+          EXPECTED_COMMIT="${{ needs.get-llama-commit.outputs.commit_hash }}"
+          if [ "$CURRENT_COMMIT" != "$EXPECTED_COMMIT" ]; then
+            echo "❌ Commit mismatch! Expected: $EXPECTED_COMMIT, Got: $CURRENT_COMMIT"
+            exit 1
+          fi
+          echo "✅ Using llama.cpp commit: $CURRENT_COMMIT"
+
+      - name: Setup Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: latest
+          cache: true
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r${{ env.ANDROID_NDK_VERSION }}
+          link-to-sdk: true
+
+      - name: Cache OpenCL headers
+        id: cache-opencl
+        uses: actions/cache@v4
+        with:
+          path: OpenCL-Headers
+          key: opencl-headers-v2024.05.08
+
+      - name: Install OpenCL headers
+        if: steps.cache-opencl.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch v2024.05.08 https://github.com/KhronosGroup/OpenCL-Headers.git
+
+      - name: Setup OpenCL headers
+        run: |
+          sudo cp -r OpenCL-Headers/CL /usr/local/include/
+
+      - name: Cache build
+        uses: actions/cache@v4
+        with:
+          path: |
+            build-android-${{ matrix.abi }}/CMakeCache.txt
+            build-android-${{ matrix.abi }}/CMakeFiles
+          key: android-${{ matrix.abi }}-${{ needs.get-llama-commit.outputs.commit_hash }}
+
+      - name: Build for Android ${{ matrix.abi }}
+        run: |
+          mkdir -p build-android-${{ matrix.abi }}
+          cd build-android-${{ matrix.abi }}
+          
+          cmake ../${{ env.LLAMA_CPP_DIR }} \
+            -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=${{ matrix.abi }} \
+            -DANDROID_PLATFORM=android-${{ env.ANDROID_MIN_SDK }} \
+            -DANDROID_FORCE_ARM_BUILD=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_SERVER=OFF \
+            -DLLAMA_BUILD_TOOLS=OFF \
+            -DLLAMA_CURL=OFF \
+            -DGGML_NATIVE=OFF \
+            -DGGML_LLAMAFILE=OFF \
+            -DGGML_BACKEND_DL=ON \
+            -DGGML_OPENMP=ON \
+            -DGGML_OPENCL=ON \
+            -DGGML_VULKAN=ON \
+            -DGGML_VULKAN_CHECK_RESULTS=OFF \
+            -DGGML_VULKAN_RUN_TESTS=OFF \
+            ${{ matrix.cmake_extra }}
+          
+          cmake --build . --config Release -j$(nproc)
+
+      - name: Package artifacts
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          
+          ABI_NAME="${{ matrix.abi }}"
+          if [ "$ABI_NAME" = "arm64-v8a" ]; then
+            ABI_NAME="arm64-v8a"
+          elif [ "$ABI_NAME" = "armeabi-v7a" ]; then
+            ABI_NAME="armeabi-v7a"
+          fi
+          
+          mkdir -p dist
+          find build-android-${{ matrix.abi }} -name "*.so" -exec cp {} dist/ \;
+          
+          cd dist
+          zip -r ../llm_llamacpp-v${VERSION}-android-${ABI_NAME}.zip *.so
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.abi }}
+          path: llm_llamacpp-*.zip
+          retention-days: 30
+
+  # ============================================
+  # Linux x64 Build (optional)
   # ============================================
   build-linux-x64:
-    if: ${{ !inputs.skip_linux }}
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_linux)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -48,41 +200,20 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Update llama.cpp to latest master
-        run: |
-          cd ${{ env.LLAMA_CPP_DIR }}
-          git fetch origin master --tags
-          git checkout master
-          git pull origin master
-          git submodule update --init --recursive
-          echo "✅ llama.cpp 已更新到最新 commit: $(git rev-parse HEAD)"
-
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            cmake \
-            ninja-build \
-            libvulkan-dev \
-            vulkan-tools \
-            glslc \
-            ocl-icd-opencl-dev \
-            opencl-headers
+            cmake ninja-build \
+            libvulkan-dev vulkan-tools glslc \
+            ocl-icd-opencl-dev opencl-headers
 
       - name: Setup CUDA
-        run: |
-          CUDA_VERSION="12.4.1"
-          CUDA_BUILD="550.54.15"
-          
-          wget -q https://developer.download.nvidia.com/compute/cuda/${CUDA_VERSION}/local_installers/cuda_${CUDA_VERSION}_${CUDA_BUILD}_linux.run
-          
-          sudo sh cuda_${CUDA_VERSION}_${CUDA_BUILD}_linux.run --silent --toolkit --no-man-page --no-drm
-          
-          echo "/usr/local/cuda-12.4/bin" >> $GITHUB_PATH
-          echo "CUDA_PATH=/usr/local/cuda-12.4" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-          
-          /usr/local/cuda-12.4/bin/nvcc --version
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: '12.4.1'
+          method: 'network'
+          sub-packages: '["nvcc", "cudart"]'
 
       - name: Build llama.cpp
         run: |
@@ -97,9 +228,11 @@ jobs:
             -DLLAMA_BUILD_EXAMPLES=OFF \
             -DLLAMA_BUILD_SERVER=OFF \
             -DLLAMA_BUILD_TOOLS=OFF \
-            -DLLAMA_CURL=OFF \
             -DGGML_CUDA=ON \
-            -DGGML_VULKAN=ON
+            -DGGML_VULKAN=ON \
+            -DGGML_OPENCL=ON \
+            -DGGML_OPENMP=ON \
+            -DGGML_NATIVE=ON
           
           cmake --build . --config Release -j$(nproc)
 
@@ -109,126 +242,60 @@ jobs:
           VERSION="${VERSION#v}"
           
           mkdir -p dist
-          
           find build-linux-x64 -name "*.so" -exec cp {} dist/ \; 2>/dev/null || true
           
           cd dist
           zip -r ../llm_llamacpp-v${VERSION}-linux-x64.zip *.so
-          
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-x64
           path: llm_llamacpp-*.zip
+          retention-days: 30
 
   # ============================================
-  # macOS arm64 Build (with Metal)
+  # macOS Builds (optional, using matrix)
   # ============================================
-  build-macos-arm64:
-    if: ${{ !inputs.skip_macos }}
+  build-macos:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_macos)
     runs-on: macos-14
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
+        include:
+          - arch: arm64
+            cmake_extra: "-DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+          - arch: x86_64
+            cmake_extra: "-DGGML_METAL=OFF"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Update llama.cpp to latest master
-        run: |
-          cd ${{ env.LLAMA_CPP_DIR }}
-          git fetch origin master --tags
-          git checkout master
-          git pull origin master
-          git submodule update --init --recursive
-          echo "✅ llama.cpp 已更新到最新 commit: $(git rev-parse HEAD)"
-
       - name: Install dependencies
         run: |
-          brew install cmake ninja
+          brew install cmake ninja libomp
 
-      - name: Build llama.cpp
+      - name: Build for macOS ${{ matrix.arch }}
         run: |
-          mkdir -p build-macos-arm64
-          cd build-macos-arm64
+          mkdir -p build-macos-${{ matrix.arch }}
+          cd build-macos-${{ matrix.arch }}
           
           cmake ../${{ env.LLAMA_CPP_DIR }} \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
             -DBUILD_SHARED_LIBS=ON \
             -DLLAMA_BUILD_TESTS=OFF \
             -DLLAMA_BUILD_EXAMPLES=OFF \
             -DLLAMA_BUILD_SERVER=OFF \
             -DLLAMA_BUILD_TOOLS=OFF \
             -DLLAMA_CURL=OFF \
-            -DGGML_METAL=ON \
-            -DGGML_METAL_EMBED_LIBRARY=ON
-          
-          cmake --build . --config Release -j$(sysctl -n hw.ncpu)
-
-      - name: Package artifacts
-        run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          VERSION="${VERSION#v}"
-          
-          mkdir -p dist
-          
-          find build-macos-arm64 -name "*.dylib" -exec cp {} dist/ \;
-          find build-macos-arm64 -name "*.metallib" -exec cp {} dist/ \; 2>/dev/null || true
-          
-          cd dist
-          zip -r ../llm_llamacpp-v${VERSION}-macos-arm64.zip *
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-arm64
-          path: llm_llamacpp-*.zip
-
-  # ============================================
-  # macOS x64 Build (cross-compiled)
-  # ============================================
-  build-macos-x64:
-    if: ${{ !inputs.skip_macos }}
-    runs-on: macos-14
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Update llama.cpp to latest master
-        run: |
-          cd ${{ env.LLAMA_CPP_DIR }}
-          git fetch origin master --tags
-          git checkout master
-          git pull origin master
-          git submodule update --init --recursive
-          echo "✅ llama.cpp 已更新到最新 commit: $(git rev-parse HEAD)"
-
-      - name: Install dependencies
-        run: |
-          brew install cmake ninja
-
-      - name: Build llama.cpp
-        run: |
-          mkdir -p build-macos-x64
-          cd build-macos-x64
-          
-          cmake ../${{ env.LLAMA_CPP_DIR }} \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-            -DBUILD_SHARED_LIBS=ON \
-            -DLLAMA_BUILD_TESTS=OFF \
-            -DLLAMA_BUILD_EXAMPLES=OFF \
-            -DLLAMA_BUILD_SERVER=OFF \
-            -DLLAMA_BUILD_TOOLS=OFF \
-            -DLLAMA_CURL=OFF \
-            -DGGML_NATIVE=OFF \
-            -DGGML_METAL=OFF \
             -DGGML_OPENMP=ON \
-            -DGGML_ACCELERATE=ON
+            -DGGML_ACCELERATE=ON \
+            ${{ matrix.cmake_extra }}
           
           cmake --build . --config Release -j$(sysctl -n hw.ncpu)
 
@@ -238,38 +305,32 @@ jobs:
           VERSION="${VERSION#v}"
           
           mkdir -p dist
-          find build-macos-x64 -name "*.dylib" -exec cp {} dist/ \;
+          find build-macos-${{ matrix.arch }} -name "*.dylib" -exec cp {} dist/ \;
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            find build-macos-${{ matrix.arch }} -name "*.metallib" -exec cp {} dist/ \; 2>/dev/null || true
+          fi
           
           cd dist
-          zip -r ../llm_llamacpp-v${VERSION}-macos-x64.zip *
+          zip -r ../llm_llamacpp-v${VERSION}-macos-${{ matrix.arch }}.zip *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-x64
+          name: macos-${{ matrix.arch }}
           path: llm_llamacpp-*.zip
+          retention-days: 30
 
   # ============================================
-  # Windows x64 Build (CPU + Vulkan + OpenCL)
+  # Windows x64 Build (optional)
   # ============================================
   build-windows-x64:
-    if: ${{ !inputs.skip_windows }}
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_windows)
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Update llama.cpp to latest master
-        run: |
-          cd ${{ env.LLAMA_CPP_DIR }}
-          git fetch origin master --tags
-          git checkout master
-          git pull origin master
-          git submodule update --init --recursive
-          echo "✅ llama.cpp 已更新到最新 commit: $(git rev-parse HEAD)"
-        shell: bash
 
       - name: Setup Vulkan SDK
         uses: jakoch/install-vulkan-sdk-action@v1
@@ -290,10 +351,8 @@ jobs:
             -DLLAMA_BUILD_EXAMPLES=OFF `
             -DLLAMA_BUILD_SERVER=OFF `
             -DLLAMA_BUILD_TOOLS=OFF `
-            -DLLAMA_CURL=OFF `
             -DGGML_CUDA=OFF `
             -DGGML_VULKAN=ON `
-            -DGGML_OPENCL=ON `
             -DGGML_OPENMP=ON
           
           cmake --build . --config Release -j $env:NUMBER_OF_PROCESSORS
@@ -305,7 +364,6 @@ jobs:
           $version = $version -replace '^v', ''
           
           New-Item -ItemType Directory -Force -Path dist
-          
           Get-ChildItem -Path build-windows-x64 -Recurse -Filter "*.dll" | Copy-Item -Destination dist -Force
           
           Compress-Archive -Path dist\* -DestinationPath "llm_llamacpp-v$version-windows-x64.zip"
@@ -315,293 +373,19 @@ jobs:
         with:
           name: windows-x64
           path: llm_llamacpp-*.zip
+          retention-days: 30
 
   # ============================================
-  # Android arm64-v8a Build (OpenCL + Vulkan + CPU全加速)
-  # ============================================
-  build-android-arm64:
-    if: ${{ !inputs.skip_android }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      
-      - name: Update llama.cpp to latest master (支持 Qwen3.5)
-        run: |
-          cd ${{ env.LLAMA_CPP_DIR }}
-          git fetch origin master --tags
-          git checkout master
-          git pull origin master
-          git submodule update --init --recursive
-          echo "✅ llama.cpp 已更新到最新 commit: $(git rev-parse HEAD)"
-
-      - name: Setup Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1
-        with:
-          vulkan_version: latest
-          cache: true
-
-      - name: Setup Android NDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 11076708
-
-      - name: Install NDK
-        run: |
-          sdkmanager --install "ndk;26.3.11579264"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> $GITHUB_ENV
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build
-          sudo apt-get install -y ocl-icd-opencl-dev opencl-headers
-
-      - name: Build llama.cpp for Android (OpenCL + Vulkan)
-        run: |
-          mkdir -p build-android-arm64
-          cd build-android-arm64
-          
-          cmake ../${{ env.LLAMA_CPP_DIR }} \
-            -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-24 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DLLAMA_BUILD_TESTS=OFF \
-            -DLLAMA_BUILD_EXAMPLES=OFF \
-            -DLLAMA_BUILD_SERVER=OFF \
-            -DLLAMA_BUILD_TOOLS=OFF \
-            -DLLAMA_CURL=OFF \
-            -DGGML_NATIVE=OFF \
-            -DGGML_LLAMAFILE=OFF \
-            -DGGML_BACKEND_DL=ON \
-            -DGGML_CPU_ALL_VARIANTS=ON \
-            -DGGML_CPU_KLEIDIAI=ON \
-            -DGGML_OPENMP=ON \
-            -DGGML_OPENCL=ON \
-            -DGGML_OPENCL_USE_ADRENO_KERNELS=ON \
-            -DGGML_VULKAN=ON \
-            -DGGML_VULKAN_CHECK_RESULTS=OFF \
-            -DGGML_VULKAN_RUN_TESTS=OFF \
-            -DGGML_VULKAN_DEBUG=OFF \
-            -DGGML_VULKAN_MEMORY_DEBUG=OFF \
-            -DGGML_VULKAN_PERF=OFF
-          
-          cmake --build . --config Release -j$(nproc)
-
-      - name: Package artifacts
-        run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          VERSION="${VERSION#v}"
-          
-          mkdir -p dist
-          
-          find build-android-arm64 -name "*.so" -exec cp {} dist/ \;
-          
-          cd dist
-          zip -r ../llm_llamacpp-v${VERSION}-android-arm64-v8a.zip *.so
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-arm64-v8a
-          path: llm_llamacpp-*.zip
-
-  # ============================================
-  # Android armeabi-v7a Build
-  # ============================================
-  build-android-arm:
-    if: ${{ !inputs.skip_android }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Update llama.cpp to latest master
-        run: |
-          cd ${{ env.LLAMA_CPP_DIR }}
-          git fetch origin master --tags
-          git checkout master
-          git pull origin master
-          git submodule update --init --recursive
-          echo "✅ llama.cpp 已更新到最新 commit: $(git rev-parse HEAD)"
-
-      - name: Setup Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1
-        with:
-          vulkan_version: latest
-          cache: true
-
-      - name: Setup Android NDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 11076708
-
-      - name: Install NDK
-        run: |
-          sdkmanager --install "ndk;26.3.11579264"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> $GITHUB_ENV
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build ocl-icd-opencl-dev opencl-headers
-
-      - name: Build for Android armeabi-v7a
-        run: |
-          mkdir -p build-android-arm
-          cd build-android-arm
-          
-          cmake ../${{ env.LLAMA_CPP_DIR }} \
-            -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
-            -DANDROID_ABI=armeabi-v7a \
-            -DANDROID_PLATFORM=android-24 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DLLAMA_BUILD_TESTS=OFF \
-            -DLLAMA_BUILD_EXAMPLES=OFF \
-            -DLLAMA_BUILD_SERVER=OFF \
-            -DLLAMA_BUILD_TOOLS=OFF \
-            -DLLAMA_CURL=OFF \
-            -DGGML_NATIVE=OFF \
-            -DGGML_LLAMAFILE=OFF \
-            -DGGML_BACKEND_DL=ON \
-            -DGGML_OPENMP=ON \
-            -DGGML_OPENCL=ON \
-            -DGGML_VULKAN=ON
-          
-          cmake --build . --config Release -j$(nproc)
-
-      - name: Package artifacts
-        run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          VERSION="${VERSION#v}"
-          
-          mkdir -p dist
-          find build-android-arm -name "*.so" -exec cp {} dist/ \;
-          
-          cd dist
-          zip -r ../llm_llamacpp-v${VERSION}-android-armeabi-v7a.zip *.so
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-armeabi-v7a
-          path: llm_llamacpp-*.zip
-
-  # ============================================
-  # Android x86_64 Build
-  # ============================================
-  build-android-x86_64:
-    if: ${{ !inputs.skip_android }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Update llama.cpp to latest master
-        run: |
-          cd ${{ env.LLAMA_CPP_DIR }}
-          git fetch origin master --tags
-          git checkout master
-          git pull origin master
-          git submodule update --init --recursive
-          echo "✅ llama.cpp 已更新到最新 commit: $(git rev-parse HEAD)"
-
-      - name: Setup Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1
-        with:
-          vulkan_version: latest
-          cache: true
-
-      - name: Setup Android NDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 11076708
-
-      - name: Install NDK
-        run: |
-          sdkmanager --install "ndk;26.3.11579264"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> $GITHUB_ENV
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build ocl-icd-opencl-dev opencl-headers
-
-      - name: Build for Android x86_64
-        run: |
-          mkdir -p build-android-x86_64
-          cd build-android-x86_64
-          
-          cmake ../${{ env.LLAMA_CPP_DIR }} \
-            -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
-            -DANDROID_ABI=x86_64 \
-            -DANDROID_PLATFORM=android-24 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DLLAMA_BUILD_TESTS=OFF \
-            -DLLAMA_BUILD_EXAMPLES=OFF \
-            -DLLAMA_BUILD_SERVER=OFF \
-            -DLLAMA_BUILD_TOOLS=OFF \
-            -DLLAMA_CURL=OFF \
-            -DGGML_NATIVE=OFF \
-            -DGGML_LLAMAFILE=OFF \
-            -DGGML_BACKEND_DL=ON \
-            -DGGML_CPU_ALL_VARIANTS=ON \
-            -DGGML_OPENMP=ON \
-            -DGGML_OPENCL=ON \
-            -DGGML_VULKAN=ON
-          
-          cmake --build . --config Release -j$(nproc)
-
-      - name: Package artifacts
-        run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          VERSION="${VERSION#v}"
-          
-          mkdir -p dist
-          find build-android-x86_64 -name "*.so" -exec cp {} dist/ \;
-          
-          cd dist
-          zip -r ../llm_llamacpp-v${VERSION}-android-x86_64.zip *.so
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-x86_64
-          path: llm_llamacpp-*.zip
-
-  # ============================================
-  # iOS Build (with Metal)
+  # iOS Build (optional)
   # ============================================
   build-ios:
-    if: ${{ !inputs.skip_ios }}
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_ios)
     runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Update llama.cpp to latest master
-        run: |
-          cd ${{ env.LLAMA_CPP_DIR }}
-          git fetch origin master --tags
-          git checkout master
-          git pull origin master
-          git submodule update --init --recursive
-          echo "✅ llama.cpp 已更新到最新 commit: $(git rev-parse HEAD)"
 
       - name: Install dependencies
         run: |
@@ -623,7 +407,6 @@ jobs:
             -DLLAMA_BUILD_EXAMPLES=OFF \
             -DLLAMA_BUILD_SERVER=OFF \
             -DLLAMA_BUILD_TOOLS=OFF \
-            -DLLAMA_CURL=OFF \
             -DGGML_METAL=ON \
             -DGGML_METAL_EMBED_LIBRARY=ON
           
@@ -635,7 +418,6 @@ jobs:
           VERSION="${VERSION#v}"
           
           mkdir -p dist
-          
           find build-ios-arm64 -name "*.a" -exec cp {} dist/ \;
           find build-ios-arm64 -name "*.metallib" -exec cp {} dist/ \; 2>/dev/null || true
           
@@ -647,39 +429,39 @@ jobs:
         with:
           name: ios-arm64
           path: llm_llamacpp-*.zip
+          retention-days: 30
 
   # ============================================
   # Create Release
   # ============================================
   release:
     needs:
+      - get-llama-commit
+      - build-android
       - build-linux-x64
-      - build-macos-arm64
-      - build-macos-x64
+      - build-macos
       - build-windows-x64
-      - build-android-arm64
-      - build-android-arm
-      - build-android-x86_64
       - build-ios
-    if: ${{ always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    if: |
+      always() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: false
 
       - name: Display artifacts
         run: |
           echo "Downloaded artifacts:"
           find artifacts -type f -name "*.zip" | sort
 
-      - name: Determine version and tag
+      - name: Determine version
         id: version
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
@@ -690,27 +472,15 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Using version: ${VERSION}"
 
-      - name: Create or update tag for manual runs
-        if: ${{ github.ref_type != 'tag' }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          git tag -d "${VERSION}" 2>/dev/null || true
-          git push origin ":refs/tags/${VERSION}" 2>/dev/null || true
-          
-          git tag "${VERSION}"
-          git push origin "${VERSION}"
-          echo "Created tag: ${VERSION}"
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
           files: artifacts/**/*.zip
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
