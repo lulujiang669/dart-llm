@@ -405,6 +405,15 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Update llama.cpp to latest master (支持 Qwen3.5)
+        run: |
+          cd ${{ env.LLAMA_CPP_DIR }}
+          git fetch origin master --tags
+          git checkout master
+          git pull origin master
+          git submodule update --init --recursive
+          echo "✅ llama.cpp 已更新到最新 commit: $(git rev-parse HEAD)"
+
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
         with:
@@ -471,6 +480,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Update llama.cpp to latest master (支持 Qwen3.5)
+        run: |
+          cd ${{ env.LLAMA_CPP_DIR }}
+          git fetch origin master --tags
+          git checkout master
+          git pull origin master
+          git submodule update --init --recursive
+          echo "✅ llama.cpp 已更新到最新 commit: $(git rev-parse HEAD)"
 
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
