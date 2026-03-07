@@ -1,4 +1,4 @@
-name: Build and Release llm_llamacpp
+name: nb
 
 on:
   push:
@@ -15,27 +15,28 @@ on:
         type: boolean
         default: true
       build_linux:
-        description: 'Build Linux'
+        description: 'Build Linux (x64 with CUDA/Vulkan)'
         type: boolean
         default: false
       build_macos:
-        description: 'Build macOS'
+        description: 'Build macOS (arm64/x64 with Metal)'
         type: boolean
         default: false
       build_windows:
-        description: 'Build Windows'
+        description: 'Build Windows (x64 with Vulkan)'
         type: boolean
         default: false
       build_ios:
-        description: 'Build iOS'
+        description: 'Build iOS (arm64 with Metal)'
         type: boolean
         default: false
 
 env:
   LLAMA_CPP_DIR: packages/llm_llamacpp/llamacpp
-  ANDROID_NDK_VERSION: r26d  # 对应 NDK 26.3.11579264
+  ANDROID_NDK_VERSION: r26d
   ANDROID_MIN_SDK: 24
   CMAKE_VERSION: 3.28.3
+  OPENCL_VERSION: v2024.05.08
 
 jobs:
   # ============================================
@@ -54,17 +55,15 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Update llama.cpp to latest master and get commit info
+      - name: Update llama.cpp to latest master
         id: get-commit
         run: |
           cd ${{ env.LLAMA_CPP_DIR }}
           
-          # 更新到最新 master
           git fetch origin master --depth=1
           git checkout -f origin/master
           git submodule update --init --recursive --depth=1
           
-          # 获取提交信息
           COMMIT_HASH=$(git rev-parse HEAD)
           COMMIT_DATE=$(git log -1 --format=%cd --date=short)
           COMMIT_MSG=$(git log -1 --format=%s)
@@ -79,18 +78,19 @@ jobs:
           echo "   Message: $COMMIT_MSG"
 
   # ============================================
-  # Android builds - Fully optimized for all chips
+  # Android builds - Fully optimized with prebuilt OpenCL
   # ============================================
   build-android:
     needs: get-llama-commit
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_android)
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false  # 一个 ABI 失败不影响其他 ABI
+      fail-fast: false
       matrix:
         abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
         include:
           - abi: arm64-v8a
+            opencl_url: "https://github.com/KhronosGroup/OpenCL-SDK/raw/main/prebuilt/android/arm64-v8a/libOpenCL.so"
             cmake_extra: >
               -DGGML_CPU_ALL_VARIANTS=ON
               -DGGML_CPU_KLEIDIAI=ON
@@ -98,20 +98,20 @@ jobs:
             description: "ARMv8 64-bit with full CPU variants + Adreno OpenCL"
           
           - abi: armeabi-v7a
+            opencl_url: "https://github.com/KhronosGroup/OpenCL-SDK/raw/main/prebuilt/android/armeabi-v7a/libOpenCL.so"
             cmake_extra: >
               -DGGML_OPENCL_USE_ADRENO_KERNELS=ON
-              -DARM_FEATURES=ON
             description: "ARMv7 with NEON + Adreno OpenCL"
           
           - abi: x86_64
+            opencl_url: "https://github.com/KhronosGroup/OpenCL-SDK/raw/main/prebuilt/android/x86_64/libOpenCL.so"
             cmake_extra: >
               -DGGML_CPU_ALL_VARIANTS=ON
-              -DGGML_OPENMP=ON
             description: "x86_64 with SSE4/AVX variants"
           
           - abi: x86
-            cmake_extra: >
-              -DGGML_OPENMP=ON
+            opencl_url: "https://github.com/KhronosGroup/OpenCL-SDK/raw/main/prebuilt/android/x86/libOpenCL.so"
+            cmake_extra: ""
             description: "x86 with SSE3 support"
 
     steps:
@@ -121,15 +121,13 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Verify and sync llama.cpp commit
+      - name: Sync to specific commit
         run: |
           cd ${{ env.LLAMA_CPP_DIR }}
           git fetch origin master --depth=1
           git checkout -f ${{ needs.get-llama-commit.outputs.commit_hash }}
           git submodule update --init --recursive --depth=1
           echo "✅ Using llama.cpp commit: $(git rev-parse HEAD)"
-          echo "   Date: ${{ needs.get-llama-commit.outputs.commit_date }}"
-          echo "   Message: ${{ needs.get-llama-commit.outputs.commit_message }}"
 
       - name: Setup Vulkan SDK
         uses: jakoch/install-vulkan-sdk-action@v1
@@ -148,33 +146,53 @@ jobs:
         with:
           cmakeVersion: ${{ env.CMAKE_VERSION }}
 
-      - name: Cache OpenCL headers
+      - name: Cache OpenCL headers and prebuilt libs
         id: cache-opencl
         uses: actions/cache@v4
         with:
-          path: OpenCL-Headers
-          key: opencl-headers-2024.05.08
+          path: |
+            OpenCL-Headers
+            opencl-libs
+          key: opencl-${{ env.OPENCL_VERSION }}-${{ matrix.abi }}
 
-      - name: Install OpenCL headers
+      - name: Download and setup OpenCL headers
         if: steps.cache-opencl.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 --branch v2024.05.08 https://github.com/KhronosGroup/OpenCL-Headers.git
+          # Download OpenCL headers
+          git clone --depth 1 --branch ${{ env.OPENCL_VERSION }} https://github.com/KhronosGroup/OpenCL-Headers.git
 
-      - name: Setup OpenCL headers
+      - name: Download prebuilt OpenCL library for ${{ matrix.abi }}
+        if: steps.cache-opencl.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p opencl-libs
+          echo "Downloading OpenCL library for ${{ matrix.abi }} from:"
+          echo "  ${{ matrix.opencl_url }}"
+          curl -L -o opencl-libs/libOpenCL.so "${{ matrix.opencl_url }}"
+          
+          # Verify download
+          if [ ! -f opencl-libs/libOpenCL.so ]; then
+            echo "❌ Failed to download OpenCL library"
+            exit 1
+          fi
+          
+          file opencl-libs/libOpenCL.so
+          ls -lh opencl-libs/
+
+      - name: Install OpenCL headers and libraries
         run: |
           sudo mkdir -p /usr/local/include
           sudo cp -r OpenCL-Headers/CL /usr/local/include/
+          sudo mkdir -p /usr/local/lib
+          sudo cp opencl-libs/libOpenCL.so /usr/local/lib/
+          sudo chmod 644 /usr/local/lib/libOpenCL.so
 
-      - name: Cache build
-        uses: actions/cache@v4
-        with:
-          path: |
-            build-android-${{ matrix.abi }}
-            ~/.ccache
-          key: android-${{ matrix.abi }}-${{ needs.get-llama-commit.outputs.commit_hash }}-${{ github.run_id }}
-          restore-keys: |
-            android-${{ matrix.abi }}-${{ needs.get-llama-commit.outputs.commit_hash }}-
-            android-${{ matrix.abi }}-
+      - name: Verify OpenCL installation
+        run: |
+          echo "✅ OpenCL headers installed:"
+          ls -la /usr/local/include/CL/
+          echo "✅ OpenCL library installed:"
+          ls -la /usr/local/lib/libOpenCL.so
+          file /usr/local/lib/libOpenCL.so
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -182,15 +200,13 @@ jobs:
           key: android-${{ matrix.abi }}-${{ needs.get-llama-commit.outputs.commit_hash }}
           max-size: 2G
 
-      - name: Build Android ${{ matrix.abi }} with all accelerations
+      - name: Build Android ${{ matrix.abi }}
         run: |
           mkdir -p build-android-${{ matrix.abi }}
           cd build-android-${{ matrix.abi }}
           
-          echo "🔧 Building for ${{ matrix.abi }} with optimizations: ${{ matrix.description }}"
-          
-          # 根据 ABI 设置额外的优化参数
-          EXTRA_FLAGS="${{ matrix.cmake_extra }}"
+          echo "🔧 Building for ${{ matrix.abi }}: ${{ matrix.description }}"
+          echo "📦 CMake extra flags: ${{ matrix.cmake_extra }}"
           
           cmake ../${{ env.LLAMA_CPP_DIR }} \
             -G Ninja \
@@ -213,56 +229,81 @@ jobs:
             -DGGML_BACKEND_DL=ON \
             -DGGML_OPENMP=ON \
             -DGGML_OPENCL=ON \
+            -DOpenCL_INCLUDE_DIR=/usr/local/include \
+            -DOpenCL_LIBRARY=/usr/local/lib/libOpenCL.so \
             -DGGML_VULKAN=ON \
             -DGGML_VULKAN_CHECK_RESULTS=OFF \
             -DGGML_VULKAN_RUN_TESTS=OFF \
-            ${EXTRA_FLAGS}
+            ${{ matrix.cmake_extra }}
           
-          # 编译并显示详细日志
+          # Build with verbose output for debugging
           cmake --build . --config Release -j$(nproc) --verbose
 
-      - name: Verify shared libraries
+      - name: Verify built libraries
         run: |
           echo "📦 Built libraries for ${{ matrix.abi }}:"
           find build-android-${{ matrix.abi }} -name "*.so" -type f | while read lib; do
-            echo "  - $(basename $lib) ($(du -h $lib | cut -f1))"
-            if command -v file &> /dev/null; then
-              file $lib | sed 's/^/    /'
+            size=$(du -h "$lib" | cut -f1)
+            echo "  - $(basename $lib) ($size)"
+            if command -v readelf &> /dev/null; then
+              echo "    Architecture: $(readelf -h "$lib" | grep 'Machine:' | sed 's/^[[:space:]]*//')"
             fi
           done
 
-      - name: Package artifacts
+      - name: Package Android artifacts
         run: |
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           VERSION="${VERSION#v}"
-          
-          # 生成带 commit hash 的版本号（便于追踪）
-          COMMIT_HASH="${{ needs.get-llama-commit.outputs.commit_hash }}"
-          SHORT_HASH=$(echo $COMMIT_HASH | cut -c1-8)
-          FULL_VERSION="${VERSION}-${SHORT_HASH}"
+          SHORT_HASH=$(echo "${{ needs.get-llama-commit.outputs.commit_hash }}" | cut -c1-8)
           
           mkdir -p dist
           
-          # 复制所有 .so 文件
+          # Copy all .so files
           find build-android-${{ matrix.abi }} -name "*.so" -exec cp {} dist/ \;
           
-          # 创建包含元数据的 info 文件
+          # Create detailed build info
           cat > dist/build-info.txt << EOF
-          Build Information
-          ================
-          Version: $VERSION
-          Commit: $COMMIT_HASH
-          Commit Date: ${{ needs.get-llama-commit.outputs.commit_date }}
-          Commit Message: ${{ needs.get-llama-commit.outputs.commit_message }}
-          ABI: ${{ matrix.abi }}
-          Optimizations: ${{ matrix.description }}
+          ========================================
+          llm_llamacpp Android Build Information
+          ========================================
+          
+          Version: ${VERSION}
           Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          llama.cpp:
+            Commit: ${{ needs.get-llama-commit.outputs.commit_hash }}
+            Date: ${{ needs.get-llama-commit.outputs.commit_date }}
+            Message: ${{ needs.get-llama-commit.outputs.commit_message }}
+          
+          Android:
+            ABI: ${{ matrix.abi }}
+            NDK: ${{ env.ANDROID_NDK_VERSION }}
+            Min SDK: ${{ env.ANDROID_MIN_SDK }}
+          
+          Optimizations:
+            Description: ${{ matrix.description }}
+            OpenCL: Enabled (Adreno kernels: ${{ matrix.abi == 'arm64-v8a' || matrix.abi == 'armeabi-v7a' }})
+            Vulkan: Enabled
+            OpenMP: Enabled
+            CPU Variants: ${{ contains(matrix.cmake_extra, 'GGML_CPU_ALL_VARIANTS') }}
+            KleidiAI: ${{ contains(matrix.cmake_extra, 'GGML_CPU_KLEIDIAI') }}
+          
+          Files:
           EOF
           
+          # List files in build-info
           cd dist
-          zip -r ../llm_llamacpp-${FULL_VERSION}-android-${{ matrix.abi }}.zip *
+          ls -la *.so >> build-info.txt 2>/dev/null || echo "No .so files found" >> build-info.txt
+          
+          # Create zip archive
+          cd ..
+          cd dist
+          zip -r ../llm_llamacpp-${VERSION}-${SHORT_HASH}-android-${{ matrix.abi }}.zip *
+          cd ..
+          
+          echo "✅ Packaged: llm_llamacpp-${VERSION}-${SHORT_HASH}-android-${{ matrix.abi }}.zip"
 
-      - name: Upload artifact
+      - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-${{ matrix.abi }}
@@ -271,20 +312,309 @@ jobs:
           if-no-files-found: error
 
   # ============================================
-  # Create Release (only when all Android builds succeed)
+  # Linux x64 Build
+  # ============================================
+  build-linux-x64:
+    needs: get-llama-commit
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Sync to specific commit
+        run: |
+          cd ${{ env.LLAMA_CPP_DIR }}
+          git fetch origin master --depth=1
+          git checkout -f ${{ needs.get-llama-commit.outputs.commit_hash }}
+          git submodule update --init --recursive --depth=1
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            libvulkan-dev vulkan-tools glslc \
+            ocl-icd-opencl-dev opencl-headers
+
+      - name: Setup CUDA
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: '12.4.1'
+          method: 'network'
+          sub-packages: '["nvcc", "cudart"]'
+
+      - name: Build for Linux
+        run: |
+          mkdir -p build-linux-x64
+          cd build-linux-x64
+          
+          cmake ../${{ env.LLAMA_CPP_DIR }} \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_SERVER=OFF \
+            -DLLAMA_BUILD_TOOLS=OFF \
+            -DGGML_CUDA=ON \
+            -DGGML_VULKAN=ON \
+            -DGGML_OPENCL=ON \
+            -DGGML_OPENMP=ON \
+            -DGGML_NATIVE=ON
+          
+          cmake --build . --config Release -j$(nproc)
+
+      - name: Package Linux artifacts
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          SHORT_HASH=$(echo "${{ needs.get-llama-commit.outputs.commit_hash }}" | cut -c1-8)
+          
+          mkdir -p dist
+          find build-linux-x64 -name "*.so" -exec cp {} dist/ \; 2>/dev/null || true
+          
+          cd dist
+          zip -r ../llm_llamacpp-${VERSION}-${SHORT_HASH}-linux-x64.zip *.so
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: llm_llamacpp-*.zip
+          retention-days: 90
+
+  # ============================================
+  # macOS Builds
+  # ============================================
+  build-macos:
+    needs: get-llama-commit
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_macos)
+    runs-on: macos-14
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
+        include:
+          - arch: arm64
+            cmake_extra: "-DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+          - arch: x86_64
+            cmake_extra: "-DGGML_METAL=OFF"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Sync to specific commit
+        run: |
+          cd ${{ env.LLAMA_CPP_DIR }}
+          git fetch origin master --depth=1
+          git checkout -f ${{ needs.get-llama-commit.outputs.commit_hash }}
+          git submodule update --init --recursive --depth=1
+
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja libomp
+
+      - name: Build for macOS ${{ matrix.arch }}
+        run: |
+          mkdir -p build-macos-${{ matrix.arch }}
+          cd build-macos-${{ matrix.arch }}
+          
+          cmake ../${{ env.LLAMA_CPP_DIR }} \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DBUILD_SHARED_LIBS=ON \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_SERVER=OFF \
+            -DLLAMA_BUILD_TOOLS=OFF \
+            -DLLAMA_CURL=OFF \
+            -DGGML_OPENMP=ON \
+            -DGGML_ACCELERATE=ON \
+            ${{ matrix.cmake_extra }}
+          
+          cmake --build . --config Release -j$(sysctl -n hw.ncpu)
+
+      - name: Package macOS artifacts
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          SHORT_HASH=$(echo "${{ needs.get-llama-commit.outputs.commit_hash }}" | cut -c1-8)
+          
+          mkdir -p dist
+          find build-macos-${{ matrix.arch }} -name "*.dylib" -exec cp {} dist/ \;
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            find build-macos-${{ matrix.arch }} -name "*.metallib" -exec cp {} dist/ \; 2>/dev/null || true
+          fi
+          
+          cd dist
+          zip -r ../llm_llamacpp-${VERSION}-${SHORT_HASH}-macos-${{ matrix.arch }}.zip *
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: llm_llamacpp-*.zip
+          retention-days: 90
+
+  # ============================================
+  # Windows x64 Build
+  # ============================================
+  build-windows-x64:
+    needs: get-llama-commit
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Sync to specific commit
+        shell: bash
+        run: |
+          cd ${{ env.LLAMA_CPP_DIR }}
+          git fetch origin master --depth=1
+          git checkout -f ${{ needs.get-llama-commit.outputs.commit_hash }}
+          git submodule update --init --recursive --depth=1
+
+      - name: Setup Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: latest
+          cache: true
+
+      - name: Build for Windows
+        shell: pwsh
+        run: |
+          mkdir build-windows-x64
+          cd build-windows-x64
+          
+          cmake ..\${{ env.LLAMA_CPP_DIR }} `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_SHARED_LIBS=ON `
+            -DLLAMA_BUILD_TESTS=OFF `
+            -DLLAMA_BUILD_EXAMPLES=OFF `
+            -DLLAMA_BUILD_SERVER=OFF `
+            -DLLAMA_BUILD_TOOLS=OFF `
+            -DGGML_VULKAN=ON `
+            -DGGML_OPENMP=ON
+          
+          cmake --build . --config Release -j $env:NUMBER_OF_PROCESSORS
+
+      - name: Package Windows artifacts
+        shell: pwsh
+        run: |
+          $version = "${{ github.event.inputs.version || github.ref_name }}"
+          $version = $version -replace '^v', ''
+          $shortHash = "${{ needs.get-llama-commit.outputs.commit_hash }}".Substring(0, 8)
+          
+          New-Item -ItemType Directory -Force -Path dist
+          Get-ChildItem -Path build-windows-x64 -Recurse -Filter "*.dll" | Copy-Item -Destination dist -Force
+          
+          Compress-Archive -Path dist\* -DestinationPath "llm_llamacpp-${version}-${shortHash}-windows-x64.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: llm_llamacpp-*.zip
+          retention-days: 90
+
+  # ============================================
+  # iOS Build
+  # ============================================
+  build-ios:
+    needs: get-llama-commit
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_ios)
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Sync to specific commit
+        run: |
+          cd ${{ env.LLAMA_CPP_DIR }}
+          git fetch origin master --depth=1
+          git checkout -f ${{ needs.get-llama-commit.outputs.commit_hash }}
+          git submodule update --init --recursive --depth=1
+
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja
+
+      - name: Build for iOS
+        run: |
+          mkdir -p build-ios-arm64
+          cd build-ios-arm64
+          
+          cmake ../${{ env.LLAMA_CPP_DIR }} \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_SERVER=OFF \
+            -DLLAMA_BUILD_TOOLS=OFF \
+            -DGGML_METAL=ON \
+            -DGGML_METAL_EMBED_LIBRARY=ON
+          
+          cmake --build . --config Release -j$(sysctl -n hw.ncpu)
+
+      - name: Package iOS artifacts
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          SHORT_HASH=$(echo "${{ needs.get-llama-commit.outputs.commit_hash }}" | cut -c1-8)
+          
+          mkdir -p dist
+          find build-ios-arm64 -name "*.a" -exec cp {} dist/ \;
+          find build-ios-arm64 -name "*.metallib" -exec cp {} dist/ \; 2>/dev/null || true
+          
+          cd dist
+          zip -r ../llm_llamacpp-${VERSION}-${SHORT_HASH}-ios-arm64.zip *
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-arm64
+          path: llm_llamacpp-*.zip
+          retention-days: 90
+
+  # ============================================
+  # Create Release
   # ============================================
   release:
     needs:
       - get-llama-commit
       - build-android
+      - build-linux-x64
+      - build-macos
+      - build-windows-x64
+      - build-ios
     if: |
-      success() && 
+      always() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled') &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download all Android artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -306,7 +636,6 @@ jobs:
             VERSION="v${{ github.event.inputs.version }}"
           fi
           
-          # 获取 commit hash
           COMMIT_HASH="${{ needs.get-llama-commit.outputs.commit_hash }}"
           SHORT_HASH=$(echo $COMMIT_HASH | cut -c1-8)
           
@@ -315,7 +644,7 @@ jobs:
           echo "commit_hash=${COMMIT_HASH}" >> $GITHUB_OUTPUT
           echo "commit_date=${{ needs.get-llama-commit.outputs.commit_date }}" >> $GITHUB_OUTPUT
           
-          echo "🚀 Creating release: ${VERSION} (based on llama.cpp ${SHORT_HASH})"
+          echo "🚀 Creating release: ${VERSION} (llama.cpp ${SHORT_HASH})"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -323,7 +652,7 @@ jobs:
           tag_name: ${{ steps.version.outputs.version }}
           name: Release ${{ steps.version.outputs.version }}
           body: |
-            ## 🚀 llm_llamacpp Android Library Release
+            ## 🚀 llm_llamacpp Multi-Platform Release
             
             ### 📦 Build Information
             - **Version**: ${{ steps.version.outputs.version }}
@@ -331,40 +660,39 @@ jobs:
             - **Commit Date**: ${{ steps.version.outputs.commit_date }}
             - **Build Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
             
-            ### 📱 Supported ABIs
+            ### 📱 Android (Fully Optimized)
             - **arm64-v8a**: Full CPU variants + Adreno OpenCL + KleidiAI
             - **armeabi-v7a**: NEON + Adreno OpenCL
             - **x86_64**: SSE4/AVX variants
             - **x86**: SSE3 support
             
-            ### ⚡ Accelerations Enabled
-            - ✅ OpenCL (with Adreno kernels)
-            - ✅ Vulkan
-            - ✅ OpenMP (CPU parallel)
-            - ✅ CPU dynamic dispatch (all variants)
+            ### 🐧 Linux x64
+            - CUDA 12.4 + Vulkan + OpenCL + OpenMP
+            
+            ### 🍎 macOS
+            - **arm64**: Metal + Accelerate + OpenMP
+            - **x86_64**: Accelerate + OpenMP
+            
+            ### 🪟 Windows x64
+            - Vulkan + OpenMP
+            
+            ### 📱 iOS
+            - Metal (static library)
+            
+            ### ⚡ Common Accelerations
+            - ✅ OpenCL (Android with Adreno kernels)
+            - ✅ Vulkan (Android/Linux/Windows)
+            - ✅ Metal (macOS/iOS)
+            - ✅ CUDA (Linux)
+            - ✅ OpenMP (All platforms)
+            - ✅ CPU dynamic dispatch (Android)
             - ✅ KleidiAI (ARM v8.2+/v9)
             
             ### 📥 Downloads
-            Each zip file contains:
-            - `libllama.so` - Main shared library
-            - `build-info.txt` - Detailed build metadata
+            Each zip file contains platform-specific libraries and a `build-info.txt` with detailed metadata.
           files: artifacts/**/*.zip
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ============================================
-  # Notify on failure
-  # ============================================
-  notify-failure:
-    needs: [build-android, release]
-    if: failure() && github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Send failure notification
-        run: |
-          echo "❌ Build failed for Android ABIs"
-          echo "Check the workflow logs for details"
-          # 这里可以添加 Slack/Discord/Email 通知
