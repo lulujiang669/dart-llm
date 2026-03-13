@@ -36,8 +36,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        abi: [arm64-v8a, armeabi-v7a, x86_64]
-      max-parallel: 3
+        # Only build arm64-v8a
+        # - armeabi-v7a: NDK r26 compatibility issues (vcvtnq_s32_f32 redefinition)
+        # - x86_64: KleidiAI is ARM-only (includes arm_neon.h, asm/hwcap.h)
+        # Real Android devices are almost exclusively arm64-v8a
+        abi: [arm64-v8a]
+      max-parallel: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -160,33 +164,26 @@ jobs:
           VULKAN_INCLUDE="/usr/local/include"
           
           # Map ABI to NDK triple for library path
-          case ${{ matrix.abi }} in
-            arm64-v8a)    NDK_TRIPLE="aarch64-linux-android" ;;
-            armeabi-v7a)  NDK_TRIPLE="arm-linux-androideabi" ;;
-            x86_64)       NDK_TRIPLE="x86_64-linux-android" ;;
-          esac
+          NDK_TRIPLE="aarch64-linux-android"
           
-          # Find libvulkan.so - try multiple possible paths (NDK r26 uses API suffix)
-          VULKAN_LIB=""
-          for api_suffix in "" "24"; do
-            CANDIDATE="$NDK_SYSROOT/usr/lib/${NDK_TRIPLE}${api_suffix}/libvulkan.so"
-            if [[ -f "$CANDIDATE" ]]; then
-              VULKAN_LIB="$CANDIDATE"
-              echo "::notice::Found libvulkan.so at $VULKAN_LIB"
-              break
-            fi
-          done
+          # Find libvulkan.so - only search in the correct architecture path
+          VULKAN_LIB="$NDK_SYSROOT/usr/lib/$NDK_TRIPLE/libvulkan.so"
           
-          # Fallback: search entire sysroot
-          if [[ -z "$VULKAN_LIB" ]]; then
-            echo "::warning::libvulkan.so not found in standard paths, searching..."
-            VULKAN_LIB=$(find "$NDK_SYSROOT" -name "libvulkan.so" -type f | head -n1)
-            if [[ -z "$VULKAN_LIB" ]]; then
-              echo "::error::libvulkan.so not found in NDK"
-              exit 1
-            fi
-            echo "::notice::Found libvulkan.so at $VULKAN_LIB"
+          if [[ ! -f "$VULKAN_LIB" ]]; then
+            # Try with API suffix
+            VULKAN_LIB="$NDK_SYSROOT/usr/lib/${NDK_TRIPLE}24/libvulkan.so"
           fi
+          
+          if [[ ! -f "$VULKAN_LIB" ]]; then
+            echo "::error::libvulkan.so not found for arm64 at expected paths"
+            echo "Searched:"
+            echo "  $NDK_SYSROOT/usr/lib/$NDK_TRIPLE/libvulkan.so"
+            echo "  $NDK_SYSROOT/usr/lib/${NDK_TRIPLE}24/libvulkan.so"
+            ls -la "$NDK_SYSROOT/usr/lib/" | grep -E "(aarch64|arm|x86|i686)"
+            exit 1
+          fi
+          
+          echo "::notice::Using libvulkan.so at $VULKAN_LIB"
           
           cmake -S ${{ env.LLAMA_CPP_DIR }} -B build-android-${{ matrix.abi }} \
             -G Ninja \
