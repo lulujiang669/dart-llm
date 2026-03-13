@@ -1,4 +1,4 @@
-name: Build and Release llm_llamacpp (Optimized)
+name: Build and Release llm_llamacpp (Android only)
 
 on:
   push:
@@ -10,64 +10,63 @@ on:
         description: 'Version to build (e.g., 0.1.0)'
         required: true
         default: '0.1.0'
-      # 默认全部跳过，仅构建安卓（符合您的要求）
-      skip_linux:
-        description: 'Skip Linux build'
-        type: boolean
-        default: true
-      skip_macos:
-        description: 'Skip macOS builds (arm64 and x64)'
-        type: boolean
-        default: true
-      skip_windows:
-        description: 'Skip Windows build'
-        type: boolean
-        default: true
       skip_android:
         description: 'Skip Android builds'
         type: boolean
         default: false
-      skip_ios:
-        description: 'Skip iOS build'
-        type: boolean
-        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   LLAMA_CPP_DIR: packages/llm_llamacpp/llamacpp
-  # 启用 ccache 加速编译
   CCACHE_DIR: ${{ github.workspace }}/.ccache
+  NDK_VERSION: 26.3.11579264
 
 jobs:
-  # ------------------------------------------------------------
-  # 安卓构建矩阵 (arm64-v8a, armeabi-v7a, x86_64)
-  # ------------------------------------------------------------
   build-android:
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.skip_android) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     strategy:
+      fail-fast: false
       matrix:
         abi: [arm64-v8a, armeabi-v7a, x86_64]
-      # 限制并发数，避免耗尽资源
-      max-parallel: 2
+      max-parallel: 3
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0  # 获取全部历史以便正确获取版本
+          fetch-depth: 0
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk/{23,24,25}* 2>/dev/null || true
+          df -h
 
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: android-${{ matrix.abi }}
+          max-size: 2G
+          restore-keys: android-
 
-      - name: Update llama.cpp to latest master (if cache miss)
+      - name: Update llama.cpp
+        id: llama-update
         run: |
           cd ${{ env.LLAMA_CPP_DIR }}
           git fetch origin master --tags
           git checkout master
           git pull origin master
           git submodule update --init --recursive
-          echo "✅ llama.cpp updated to $(git rev-parse HEAD)"
+          echo "commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Setup Vulkan SDK (cached)
+      - name: Setup Vulkan SDK
         uses: jakoch/install-vulkan-sdk-action@v1
         with:
           vulkan_version: latest
@@ -80,31 +79,21 @@ jobs:
 
       - name: Install NDK
         run: |
-          sdkmanager --install "ndk;26.3.11579264"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> $GITHUB_ENV
+          sdkmanager --install "ndk;${{ env.NDK_VERSION }}"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
 
-      - name: Install OpenCL headers only
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build
-          # 仅安装头文件，不编译 ICD 加载器（Android 设备自带 OpenCL 库）
-          git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git
-          sudo cp -r OpenCL-Headers/CL /usr/local/include/
-          # 清理以减少磁盘占用
-          rm -rf OpenCL-Headers
-
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: android-${{ matrix.abi }}
-          max-size: 2G
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake ninja-build
+          curl --retry 3 -L https://github.com/KhronosGroup/OpenCL-Headers/archive/refs/heads/main.tar.gz -o opencl-headers.tar.gz
+          tar -xzf opencl-headers.tar.gz
+          sudo cp -r OpenCL-Headers-main/CL /usr/local/include/
+          rm -rf opencl-headers.tar.gz OpenCL-Headers-main
 
       - name: Configure CMake
         run: |
-          mkdir -p build-android-${{ matrix.abi }}
-          cd build-android-${{ matrix.abi }}
-          
-          cmake ../${{ env.LLAMA_CPP_DIR }} \
+          cmake -S ${{ env.LLAMA_CPP_DIR }} -B build-android-${{ matrix.abi }} \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=${{ matrix.abi }} \
@@ -132,66 +121,47 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build
-        run: |
-          cd build-android-${{ matrix.abi }}
-          cmake --build . --config Release -j$(nproc)
+        run: cmake --build build-android-${{ matrix.abi }} --config Release -j$(nproc)
 
       - name: Package artifacts
         run: |
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           VERSION="${VERSION#v}"
+          
+          case ${{ matrix.abi }} in
+            arm64-v8a)    PLATFORM="android-arm64-v8a" ;;
+            armeabi-v7a)  PLATFORM="android-armeabi-v7a" ;;
+            x86_64)       PLATFORM="android-x86_64" ;;
+          esac
+          
           mkdir -p dist
           find build-android-${{ matrix.abi }} -name "*.so" -exec cp {} dist/ \;
-          cd dist
-          # 根据 ABI 映射为友好的名称
-          case ${{ matrix.abi }} in
-            arm64-v8a)  PLATFORM="android-arm64-v8a" ;;
-            armeabi-v7a) PLATFORM="android-armeabi-v7a" ;;
-            x86_64)     PLATFORM="android-x86_64" ;;
-          esac
-          zip -r ../llm_llamacpp-v${VERSION}-${PLATFORM}.zip *.so
-          cd ..
+          cd dist && zip -r ../llm_llamacpp-v${VERSION}-${PLATFORM}.zip *.so
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-${{ matrix.abi }}
           path: llm_llamacpp-*.zip
+          if-no-files-found: error
+          retention-days: 7
 
-  # ------------------------------------------------------------
-  # 其他平台（Linux, macOS, Windows, iOS）保留原样，但通过默认输入跳过
-  # 您可以按需保留或删除，这里仅作示意，具体可参考原文件
-  # ------------------------------------------------------------
-  # 为保持简洁，此处省略其他平台的详细步骤（与原文件相同）
-  # 但建议您也使用矩阵和缓存优化它们，如果未来需要启用的话。
-
-  # ============================================================
-  # 统一发布 Job（依赖所有可能运行的构建）
-  # ============================================================
   release:
-    # 动态生成 needs 列表：只包含实际运行的 Job
-    # 简单做法：列出所有 Job，但使用条件让跳过的不影响结果
-    needs:
-      - build-android
-      # 如果保留了其他平台，也需列出，但注意它们被跳过时不影响状态
-      # - build-linux-x64 ...
-    if: ${{ always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    needs: build-android
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    if: ${{ always() && needs.build-android.result == 'success' }}
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: false
 
-      - name: Display artifacts
-        run: find artifacts -type f -name "*.zip" | sort
-
-      - name: Determine version and tag
+      - name: Determine version
         id: version
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
@@ -200,26 +170,30 @@ jobs:
             VERSION="v${{ github.event.inputs.version }}"
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Using version: ${VERSION}"
+          echo "::notice::Building version: ${VERSION}"
 
-      - name: Check if tag exists (manual run)
-        if: ${{ github.ref_type != 'tag' }}
+      - name: Check and create tag
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        id: tag
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          if git ls-remote --tags origin "$VERSION" | grep -q .; then
-            echo "Tag $VERSION already exists. Will not overwrite."
-            echo "skip_release=true" >> $GITHUB_ENV
+          if git ls-remote --tags origin "$VERSION" 2>/dev/null | grep -q .; then
+            echo "::warning::Tag $VERSION already exists, skipping release creation"
+            echo "skip=true" >> $GITHUB_OUTPUT
           else
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git tag "$VERSION"
             git push origin "$VERSION"
             echo "Created tag: $VERSION"
-            echo "skip_release=false" >> $GITHUB_ENV
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: List artifacts
+        run: find artifacts -type f -name "*.zip" | sort
+
       - name: Create Release
-        if: ${{ env.skip_release != 'true' }}
+        if: ${{ steps.tag.outputs.skip != 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
