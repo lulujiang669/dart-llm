@@ -86,10 +86,6 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends cmake ninja-build
-          curl --retry 3 -L https://github.com/KhronosGroup/OpenCL-Headers/archive/refs/heads/main.tar.gz -o opencl-headers.tar.gz
-          tar -xzf opencl-headers.tar.gz
-          sudo cp -r OpenCL-Headers-main/CL /usr/local/include/
-          rm -rf opencl-headers.tar.gz OpenCL-Headers-main
 
       - name: Configure CMake
         run: |
@@ -111,9 +107,7 @@ jobs:
             -DGGML_CPU_ALL_VARIANTS=ON \
             -DGGML_CPU_KLEIDIAI=ON \
             -DGGML_OPENMP=ON \
-            -DOpenCL_INCLUDE_DIR=/usr/local/include \
-            -DGGML_OPENCL=ON \
-            -DGGML_OPENCL_USE_ADRENO_KERNELS=ON \
+            -DGGML_OPENCL=OFF \
             -DGGML_VULKAN=ON \
             -DGGML_VULKAN_CHECK_RESULTS=OFF \
             -DGGML_VULKAN_RUN_TESTS=OFF \
