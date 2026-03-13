@@ -56,15 +56,9 @@ jobs:
           submodules: recursive
           fetch-depth: 0  # 获取全部历史以便正确获取版本
 
-      - name: Restore llama.cpp source cache
-        id: cache-llamacpp
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.LLAMA_CPP_DIR }}
-          key: llamacpp-${{ hashFiles(format('{0}/.git/modules/HEAD', env.LLAMA_CPP_DIR)) }}
+
 
       - name: Update llama.cpp to latest master (if cache miss)
-        if: steps.cache-llamacpp.outputs.cache-hit != 'true'
         run: |
           cd ${{ env.LLAMA_CPP_DIR }}
           git fetch origin master --tags
