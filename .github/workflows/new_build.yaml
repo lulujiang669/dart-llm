@@ -25,6 +25,7 @@ concurrency:
 env:
   LLAMA_CPP_DIR: packages/llm_llamacpp/llamacpp
   CCACHE_DIR: ${{ github.workspace }}/.ccache
+  # NDK r26 for Vulkan support (android-24 minimum)
   NDK_VERSION: 26.3.11579264
 
 jobs:
@@ -46,7 +47,13 @@ jobs:
 
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk/{23,24,25}* 2>/dev/null || true
+          # Clean up disk space to prevent build failures
+          sudo rm -rf /usr/share/dotnet \
+                       /usr/local/lib/android/sdk/ndk/{23,24,25}* \
+                       /opt/ghc \
+                       /opt/hostedtoolcache/CodeQL \
+                       /usr/lib/jvm/adoptopenjdk-11-hotspot 2>/dev/null || true
+          sudo apt-get clean
           df -h
 
       - name: Setup ccache
@@ -54,23 +61,23 @@ jobs:
         with:
           key: android-${{ matrix.abi }}
           max-size: 2G
-          restore-keys: android-
+          restore-keys: |
+            android-${{ matrix.abi }}
+            android-
 
       - name: Update llama.cpp
         id: llama-update
         run: |
           cd ${{ env.LLAMA_CPP_DIR }}
-          git fetch origin master --tags
+          # Retry logic for network issues
+          for i in 1 2 3; do
+            git fetch origin master --tags && break || sleep 10
+          done
           git checkout master
           git pull origin master
           git submodule update --init --recursive
           echo "commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Setup Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1
-        with:
-          vulkan_version: latest
-          cache: true
+          echo "::notice::llama.cpp updated to commit $(git rev-parse --short HEAD)"
 
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
@@ -85,10 +92,23 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends cmake ninja-build
+          sudo apt-get install -y --no-install-recommends cmake ninja-build glslang-tools spirv-tools
 
       - name: Configure CMake
         run: |
+          # Dynamic NDK sysroot path (supports different runner architectures)
+          NDK_HOST_TAG="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
+          NDK_SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$NDK_HOST_TAG/sysroot"
+          VULKAN_INCLUDE="$NDK_SYSROOT/usr/include"
+          
+          # Map ABI to NDK triple for library path
+          case ${{ matrix.abi }} in
+            arm64-v8a)    NDK_TRIPLE="aarch64-linux-android" ;;
+            armeabi-v7a)  NDK_TRIPLE="arm-linux-androideabi" ;;
+            x86_64)       NDK_TRIPLE="x86_64-linux-android" ;;
+          esac
+          VULKAN_LIB="$NDK_SYSROOT/usr/lib/$NDK_TRIPLE/libvulkan.so"
+          
           cmake -S ${{ env.LLAMA_CPP_DIR }} -B build-android-${{ matrix.abi }} \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
@@ -111,11 +131,28 @@ jobs:
             -DGGML_VULKAN=ON \
             -DGGML_VULKAN_CHECK_RESULTS=OFF \
             -DGGML_VULKAN_RUN_TESTS=OFF \
+            -DVulkan_INCLUDE_DIR="$VULKAN_INCLUDE" \
+            -DVulkan_LIBRARY="$VULKAN_LIB" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build
         run: cmake --build build-android-${{ matrix.abi }} --config Release -j$(nproc)
+
+      - name: Show ccache statistics
+        run: ccache -s
+
+      - name: Verify build artifacts
+        id: verify
+        run: |
+          SO_COUNT=$(find build-android-${{ matrix.abi }} -name "*.so" -type f | wc -l)
+          if [[ "$SO_COUNT" -eq 0 ]]; then
+            echo "::error::No .so files found in build directory"
+            exit 1
+          fi
+          echo "so_count=$SO_COUNT" >> $GITHUB_OUTPUT
+          echo "::notice::Found $SO_COUNT .so files"
+          find build-android-${{ matrix.abi }} -name "*.so" -type f -exec ls -lh {} \;
 
       - name: Package artifacts
         run: |
@@ -129,7 +166,8 @@ jobs:
           esac
           
           mkdir -p dist
-          find build-android-${{ matrix.abi }} -name "*.so" -exec cp {} dist/ \;
+          # Safe file handling with print0/xargs -0
+          find build-android-${{ matrix.abi }} -name "*.so" -type f -print0 | xargs -0 cp -t dist/
           cd dist && zip -r ../llm_llamacpp-v${VERSION}-${PLATFORM}.zip *.so
 
       - name: Upload artifact
@@ -143,6 +181,7 @@ jobs:
   release:
     needs: build-android
     runs-on: ubuntu-latest
+    # Only run if build-android succeeded (skipped builds won't trigger this)
     if: ${{ always() && needs.build-android.result == 'success' }}
     timeout-minutes: 10
     steps:
@@ -163,8 +202,11 @@ jobs:
           else
             VERSION="v${{ github.event.inputs.version }}"
           fi
+          # Output both version formats for consistency
+          VERSION_CLEAN="${VERSION#v}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "::notice::Building version: ${VERSION}"
+          echo "version_clean=${VERSION_CLEAN}" >> $GITHUB_OUTPUT
+          echo "::notice::Release version: ${VERSION}"
 
       - name: Check and create tag
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -197,3 +239,10 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release summary
+        if: ${{ steps.tag.outputs.skip != 'true' }}
+        run: |
+          echo "::notice::Release ${{ steps.version.outputs.version }} created successfully"
+          echo "### Release Artifacts" >> $GITHUB_STEP_SUMMARY
+          find artifacts -type f -name "*.zip" -exec echo "- {}" \; >> $GITHUB_STEP_SUMMARY
