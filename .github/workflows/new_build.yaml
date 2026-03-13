@@ -120,16 +120,22 @@ jobs:
           # Verify SDK structure
           echo "=== SDK directory structure ==="
           ls -la "${VULKAN_SDK_VERSION}/"
-          ls -la "${SDK_DIR}/bin/" | head -10
-          ls -la "${SDK_DIR}/include/" | head -10
+          ls -la "${SDK_DIR}/"
+          ls -la "${SDK_DIR}/include/"
           
           # Install glslc
           sudo cp "${SDK_DIR}/bin/glslc" /usr/local/bin/
           sudo chmod +x /usr/local/bin/glslc
           
-          # Install Vulkan headers (complete with all dependencies)
+          # Install ALL Vulkan headers (vulkan/, vk_video/, and any other subdirectories)
           sudo mkdir -p /usr/local/include
-          sudo cp -r "${SDK_DIR}/include/vulkan" /usr/local/include/
+          sudo cp -r "${SDK_DIR}/include/"* /usr/local/include/
+          
+          # Verify what was copied
+          echo "=== Installed headers ==="
+          ls -la /usr/local/include/
+          ls -la /usr/local/include/vulkan/ | head -20
+          ls -la /usr/local/include/vk_video/ 2>/dev/null || echo "vk_video not found"
           
           # Set VULKAN_SDK environment variable for CMake
           echo "VULKAN_SDK=/usr/local" >> $GITHUB_ENV
