@@ -167,11 +167,10 @@ jobs:
           ls "$NDK_SYSROOT/usr/lib/$NDK_TRIPLE/"*.so 2>/dev/null | head -20 || echo "No .so files found"
           
           # Find libvulkan.so ONLY in the correct architecture directory
+          # NDK structure: usr/lib/$TRIPLE/$API_LEVEL/libvulkan.so
           VULKAN_LIB=""
-          for lib_path in \
-            "$NDK_SYSROOT/usr/lib/$NDK_TRIPLE/libvulkan.so" \
-            "$NDK_SYSROOT/usr/lib/${NDK_TRIPLE}24/libvulkan.so"
-          do
+          for api_level in 24 26 28 29 30 31 32 33 34; do
+            lib_path="$NDK_SYSROOT/usr/lib/$NDK_TRIPLE/$api_level/libvulkan.so"
             if [[ -f "$lib_path" ]]; then
               VULKAN_LIB="$lib_path"
               echo "::notice::Found libvulkan.so at $VULKAN_LIB"
@@ -179,15 +178,16 @@ jobs:
             fi
           done
           
-          # If not found, create a stub library for linking (Vulkan loads at runtime on Android)
+          # If not found, error out - Vulkan stub is required for linking
           if [[ -z "$VULKAN_LIB" ]]; then
-            echo "::notice::libvulkan.so not found in NDK, creating stub for linking"
-            STUB_DIR="$PWD/vulkan_stub"
-            mkdir -p "$STUB_DIR"
-            # Create empty archive as stub library
-            "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$NDK_HOST_TAG/bin/llvm-ar" rcs "$STUB_DIR/libvulkan.so"
-            VULKAN_LIB="$STUB_DIR/libvulkan.so"
-            echo "Created stub library: $VULKAN_LIB"
+            echo "::error::libvulkan.so not found in NDK"
+            echo "Searched paths:"
+            for api_level in 24 26 28 29 30 31 32 33 34; do
+              echo "  $NDK_SYSROOT/usr/lib/$NDK_TRIPLE/$api_level/libvulkan.so"
+            done
+            echo "Available directories in $NDK_SYSROOT/usr/lib/$NDK_TRIPLE/:"
+            ls -la "$NDK_SYSROOT/usr/lib/$NDK_TRIPLE/"
+            exit 1
           fi
           
           cmake ../${{ env.LLAMA_CPP_DIR }} \
