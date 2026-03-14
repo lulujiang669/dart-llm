@@ -167,13 +167,14 @@ jobs:
           ls "$NDK_SYSROOT/usr/lib/$NDK_TRIPLE/"*.so 2>/dev/null | head -20 || echo "No .so files found"
           
           # Find libvulkan.so ONLY in the correct architecture directory
+          # Use highest available API level for complete Vulkan 1.1+ symbols
           # NDK structure: usr/lib/$TRIPLE/$API_LEVEL/libvulkan.so
           VULKAN_LIB=""
-          for api_level in 24 26 28 29 30 31 32 33 34; do
+          for api_level in 34 33 32 31 30 29 28 26 24; do
             lib_path="$NDK_SYSROOT/usr/lib/$NDK_TRIPLE/$api_level/libvulkan.so"
             if [[ -f "$lib_path" ]]; then
               VULKAN_LIB="$lib_path"
-              echo "::notice::Found libvulkan.so at $VULKAN_LIB"
+              echo "::notice::Found libvulkan.so at $VULKAN_LIB (API $api_level)"
               break
             fi
           done
